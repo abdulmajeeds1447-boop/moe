@@ -82,7 +82,6 @@ const TeacherDashboard: React.FC<TeacherDashboardProps> = ({ user }) => {
                     <li><span className="text-yellow-300 font-black">قم بطباعة التقرير كـ PDF</span> وحفظه على جهازك.</li>
                     <li>ارفعه لمجلد <span className="underline">Google Drive</span> الخاص بك.</li>
                     
-                    {/* الملاحظة المحدثة */}
                     <li className="bg-white/10 p-3 rounded-xl border-r-4 border-amber-400 mt-2 block list-none animate-pulse">
                         <span className="text-amber-300 font-black flex items-center gap-2 mb-1">
                            <svg className="w-4 h-4" fill="currentColor" viewBox="0 0 20 20"><path fillRule="evenodd" d="M8.257 3.099c.765-1.36 2.722-1.36 3.486 0l5.58 9.92c.75 1.334-.213 2.98-1.742 2.98H4.42c-1.53 0-2.493-1.646-1.743-2.98l5.58-9.92zM11 13a1 1 0 11-2 0 1 1 0 012 0zm-1-8a1 1 0 00-1 1v3a1 1 0 002 0V6a1 1 0 00-1-1z" clipRule="evenodd"></path></svg>
@@ -94,7 +93,7 @@ const TeacherDashboard: React.FC<TeacherDashboardProps> = ({ user }) => {
                         </p>
                     </li>
 
-                    <li>انسخ رابط الملف وضعه في النموذج أدناه لتقديمه للمدير.</li>
+                    <li>بعد جمع تقاريرك وفرزها داخل مجلد الاداء الوظيفي في قوقل درايف انسخ رابط المجلد وضعه في النموذج أدناه لتقديمه للمدير</li>
                   </ul>
                 </div>
               </div>
@@ -126,14 +125,14 @@ const TeacherDashboard: React.FC<TeacherDashboardProps> = ({ user }) => {
               />
             </div>
             <div className="space-y-3">
-              <label className="block text-sm font-bold text-slate-700 mr-2">رابط الملف من Google Drive</label>
+              <label className="block text-sm font-bold text-slate-700 mr-2">رابط المجلد من Google Drive</label>
               <input 
                 type="url" 
                 required
                 value={driveLink}
                 onChange={(e) => setDriveLink(e.target.value)}
                 className="w-full px-6 py-4 rounded-2xl bg-[#f8fafc] border-2 border-transparent focus:border-[#009688] focus:bg-white outline-none transition-all placeholder:text-slate-300 text-left font-bold"
-                placeholder="https://drive.google.com/..."
+                placeholder="https://drive.google.com/drive/folders/..."
               />
             </div>
           </div>
@@ -180,8 +179,8 @@ const TeacherDashboard: React.FC<TeacherDashboardProps> = ({ user }) => {
                   </td>
                   <td className="py-6 text-left">
                     <a href={sub.drive_link} target="_blank" className="inline-flex items-center gap-2 text-[#009688] font-black text-xs hover:bg-[#009688] hover:text-white px-4 py-2 rounded-lg border border-[#009688]/20 transition-all">
-                      عرض الشاهد
-                      <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14"></path></svg>
+                      عرض المجلد
+                      <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M3 7v10a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-6l-2-2H5a2 2 0 00-2 2z"></path></svg>
                     </a>
                   </td>
                 </tr>
