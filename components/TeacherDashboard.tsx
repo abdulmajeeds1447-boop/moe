@@ -3,9 +3,7 @@ import React, { useState, useEffect } from 'react';
 import { Profile, Submission } from '../types';
 import { supabase } from '../services/supabaseClient';
 
-interface TeacherDashboardProps {
-  user: Profile;
-}
+interface TeacherDashboardProps { user: Profile; }
 
 const TeacherDashboard: React.FC<TeacherDashboardProps> = ({ user }) => {
   const [driveLink, setDriveLink] = useState('');
@@ -13,9 +11,7 @@ const TeacherDashboard: React.FC<TeacherDashboardProps> = ({ user }) => {
   const [submissions, setSubmissions] = useState<Submission[]>([]);
   const [isSubmitting, setIsSubmitting] = useState(false);
 
-  useEffect(() => {
-    fetchSubmissions();
-  }, [user.id]);
+  useEffect(() => { fetchSubmissions(); }, [user.id]);
 
   const fetchSubmissions = async () => {
     const { data, error } = await supabase
@@ -23,22 +19,17 @@ const TeacherDashboard: React.FC<TeacherDashboardProps> = ({ user }) => {
       .select('*')
       .eq('teacher_id', user.id)
       .order('submitted_at', { ascending: false });
-    
     if (!error && data) setSubmissions(data as Submission[]);
   };
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setIsSubmitting(true);
-    
-    const { error } = await supabase.from('submissions').insert([
-      {
+    const { error } = await supabase.from('submissions').insert([{
         teacher_id: user.id,
         drive_link: driveLink,
         subject: subject,
-      }
-    ]);
-
+    }]);
     if (!error) {
       alert('تم إدراج الرابط بنجاح');
       setDriveLink('');
@@ -53,13 +44,12 @@ const TeacherDashboard: React.FC<TeacherDashboardProps> = ({ user }) => {
   return (
     <div className="max-w-4xl mx-auto space-y-8 animate-in fade-in slide-in-from-bottom-4 duration-700">
       
-      {/* المنصة الخارجية لإعداد التقارير - التصميم الجديد والأخضر المميز */}
+      {/* المنصة الخارجية لإعداد التقارير */}
       <div className="no-print">
         <div 
           onClick={() => window.open('https://majestic-basbousa-9de5cc.netlify.app/', '_blank')}
           className="bg-gradient-to-br from-[#009688] to-[#00737a] p-10 rounded-[2.5rem] text-white shadow-2xl hover:shadow-[#009688]/30 transition-all group cursor-pointer border border-white/20 relative overflow-hidden"
         >
-          {/* تأثير ضوئي خلفي */}
           <div className="absolute top-0 right-0 w-64 h-64 bg-white/5 rounded-full -mr-20 -mt-20 blur-3xl group-hover:bg-white/10 transition-colors"></div>
           
           <div className="flex flex-col md:flex-row items-center gap-8 relative z-10">
@@ -80,18 +70,30 @@ const TeacherDashboard: React.FC<TeacherDashboardProps> = ({ user }) => {
                   استخدم هذه المنصة لتوليد تقاريرك المهنية بشكل آلي وذكي وفق معايير الجودة التعليمية.
                 </p>
                 
-                {/* الشرح التفصيلي المطلوب */}
-                <div className="bg-black/20 p-6 rounded-[2rem] border border-white/10 backdrop-blur-sm">
+                <div className="bg-black/20 p-6 rounded-[2rem] border border-white/10 backdrop-blur-sm relative">
                   <p className="text-xs font-black text-teal-100 mb-3 flex items-center gap-2">
                     <svg className="w-4 h-4" fill="currentColor" viewBox="0 0 20 20">
                       <path fillRule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7-4a1 1 0 11-2 0 1 1 0 012 0zM9 9a1 1 0 000 2v3a1 1 0 001 1h1a1 1 0 100-2v-3a1 1 0 00-1-1H9z" clipRule="evenodd"></path>
                     </svg>
                     آلية الاستخدام الصحيحة:
                   </p>
-                  <ul className="text-sm space-y-2 text-white font-medium list-disc list-inside">
+                  <ul className="text-sm space-y-3 text-white font-medium list-disc list-inside">
                     <li>قم بتعبئة بيانات التقرير في المنصة الخارجية.</li>
                     <li><span className="text-yellow-300 font-black">قم بطباعة التقرير كـ PDF</span> وحفظه على جهازك.</li>
                     <li>ارفعه لمجلد <span className="underline">Google Drive</span> الخاص بك.</li>
+                    
+                    {/* الملاحظة المحدثة */}
+                    <li className="bg-white/10 p-3 rounded-xl border-r-4 border-amber-400 mt-2 block list-none animate-pulse">
+                        <span className="text-amber-300 font-black flex items-center gap-2 mb-1">
+                           <svg className="w-4 h-4" fill="currentColor" viewBox="0 0 20 20"><path fillRule="evenodd" d="M8.257 3.099c.765-1.36 2.722-1.36 3.486 0l5.58 9.92c.75 1.334-.213 2.98-1.742 2.98H4.42c-1.53 0-2.493-1.646-1.743-2.98l5.58-9.92zM11 13a1 1 0 11-2 0 1 1 0 012 0zm-1-8a1 1 0 00-1 1v3a1 1 0 002 0V6a1 1 0 00-1-1z" clipRule="evenodd"></path></svg>
+                           تنبيه تقني هام جداً:
+                        </span>
+                        <p className="text-[12px] leading-relaxed">
+                          لكي يتمكن المدير من الاطلاع على المجلد، يجب تعديل أذونات الوصول (وصول عام) وجعلها 
+                          <span className="text-amber-200 font-black mx-1 underline italic">"أي شخص لديه الرابط"</span>.
+                        </p>
+                    </li>
+
                     <li>انسخ رابط الملف وضعه في النموذج أدناه لتقديمه للمدير.</li>
                   </ul>
                 </div>
@@ -146,7 +148,7 @@ const TeacherDashboard: React.FC<TeacherDashboardProps> = ({ user }) => {
         </form>
       </div>
 
-      {/* الجدول */}
+      {/* سجل الروابط */}
       <div className="bg-white p-10 rounded-[3rem] shadow-sm border border-slate-200">
         <h2 className="text-xl font-black text-slate-800 mb-8 flex items-center gap-3">
            <span className="w-2 h-6 bg-amber-500 rounded-full"></span>
