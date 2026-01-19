@@ -94,7 +94,10 @@ const EvaluationModal: React.FC<{ submission: Submission; onClose: () => void }>
   const shareOnWhatsapp = () => {
     const totalScore = calculateTotal();
     const currentGrade = getGrade(totalScore);
-    const message = `*نتيجة تقييم الأداء الوظيفي الرقمي*\n*مدرسة الأمير عبدالمجيد الأولى*\n------------------\n*المعلم:* ${submission.teacher?.full_name}\n*الدرجة:* ${totalScore}/100\n*التقدير:* ${currentGrade}\n\n*مدير المدرسة:*\n*نايف أحمد الشهري*`;
+    const recommendationText = recommendations ? `\n\n*توصيات التطوير المهني:*\n${recommendations}` : '';
+    
+    const message = `*نتيجة تقييم الأداء الوظيفي الرقمي*\n*مدرسة الأمير عبدالمجيد الأولى*\n------------------\n*المعلم:* ${submission.teacher?.full_name}\n*الدرجة:* ${totalScore}/100\n*التقدير:* ${currentGrade}${recommendationText}\n\n*مدير المدرسة:*\n*نايف أحمد الشهري*`;
+    
     window.open(`https://wa.me/966${submission.teacher?.phone?.substring(1)}?text=${encodeURIComponent(message)}`, '_blank');
   };
 
