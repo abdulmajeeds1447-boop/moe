@@ -30,6 +30,8 @@ const EvaluationModal: React.FC<{ submission: Submission; onClose: () => void }>
       if (data.ai_analysis && data.ai_analysis.includes('التوصيات:')) {
         const parts = data.ai_analysis.split('التوصيات:');
         setRecommendations(parts[1].trim());
+      } else {
+        setRecommendations('');
       }
     }
   };
@@ -99,7 +101,7 @@ const EvaluationModal: React.FC<{ submission: Submission; onClose: () => void }>
 
   return (
     <>
-      {/* واجهة العرض داخل المتصفح (لا تظهر عند الطباعة) */}
+      {/* واجهة العرض داخل المتصفح */}
       <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/95 backdrop-blur-md overflow-y-auto no-print">
         <div className="bg-white w-full max-w-6xl rounded-[3rem] shadow-2xl flex flex-col max-h-[95vh] overflow-hidden animate-in zoom-in-95 duration-300">
           <div className="p-8 flex justify-between items-center bg-[#0d333f] text-white shrink-0">
@@ -180,8 +182,7 @@ const EvaluationModal: React.FC<{ submission: Submission; onClose: () => void }>
                    </button>
                 </div>
                 <button onClick={shareOnWhatsapp} className="w-full py-5 bg-[#25D366] text-white rounded-3xl font-black shadow-lg shadow-green-500/20 hover:brightness-110 flex items-center justify-center gap-3 transition-all">
-                  <svg className="w-6 h-6" fill="currentColor" viewBox="0 0 24 24"><path d="M17.472 14.382c-.297-.149-1.758-.867-2.03-.967-.273-.099-.471-.148-.67.15-.197.297-.767.966-.94 1.164-.173.199-.347.223-.644.075-.297-.15-1.255-.463-2.39-1.475-.883-.788-1.48-1.761-1.653-2.059-.173-.297-.018-.458.13-.606.134-.133.298-.347.446-.52.149-.174.198-.298.298-.497.099-.198.05-.371-.025-.52-.075-.149-.669-1.612-.916-2.207-.242-.579-.487-.5-.669-.51-.173-.008-.371-.01-.57-.01-.198 0-.52.074-.792.372-.272.297-1.04 1.016-1.04 2.479 0 1.462 1.065 2.875 1.213 3.074.149.198 2.096 3.2 5.077 4.487.709.306 1.262.489 1.694.625.712.227 1.36.195 1.871.118.571-.085 1.758-.719 2.006-1.413.248-.694.248-1.289.173-1.413-.074-.124-.272-.198-.57-.347m-5.421 7.403h-.004a9.87 9.87 0 01-5.031-1.378l-.361-.214-3.741.982.998-3.648-.235-.374a9.86 9.86 0 01-1.51-5.26c.001-5.45 4.436-9.884 9.888-9.884 2.64 0 5.122 1.03 6.988 2.898a9.825 9.825 0 012.893 6.994c-.003 5.45-4.437 9.884-9.885 9.884m8.413-18.297A11.815 11.815 0 0012.05 0C5.495 0 .16 5.335.157 11.892c0 2.096.547 4.142 1.588 5.945L.057 24l6.305-1.654a11.882 11.882 0 005.683 1.448h.005c6.554 0 11.89-5.335 11.893-11.893a11.821 11.821 0 00-3.48-8.413z"/></svg>
-                  إرسال التقرير عبر الواتساب
+                  إرسال عبر الواتساب
                 </button>
               </div>
             </div>
@@ -189,93 +190,93 @@ const EvaluationModal: React.FC<{ submission: Submission; onClose: () => void }>
         </div>
       </div>
 
-      {/* نموذج الطباعة الرسمي المطور (صفحة واحدة A4 ثابتة) */}
-      <div className="hidden print:block fixed inset-0 bg-white text-black z-[100] p-0" dir="rtl">
-        <div className="print-page-container mx-auto bg-white relative overflow-hidden flex flex-col h-full border-0">
+      {/* نموذج الطباعة الرسمي النهائي (صفحة واحدة A4 مضمونة) */}
+      <div className="print-only-container hidden print:block fixed inset-0 bg-white text-black z-[99999]" dir="rtl">
+        <div className="print-content-box mx-auto flex flex-col h-[297mm] w-[210mm] overflow-hidden bg-white">
           
-          {/* الترويسة مضغوطة */}
-          <div className="bg-[#0d333f] text-white py-5 px-10 flex justify-between items-center shrink-0">
-            <div className="space-y-0.5 text-[10px] font-bold">
+          {/* ترويسة مكبوسة جداً */}
+          <div className="bg-[#0d333f] text-white py-4 px-10 flex justify-between items-center shrink-0">
+            <div className="space-y-0.5 text-[9px] font-bold">
               <p>المملكة العربية السعودية</p>
               <p>وزارة التعليم</p>
               <p>الإدارة العامة للتعليم بجدة</p>
-              <p className="text-lg font-black pt-0.5">ثانوية الأمير عبدالمجيد الأولى</p>
+              <p className="text-base font-black pt-0.5">ثانوية الأمير عبدالمجيد الأولى</p>
             </div>
-            <img src="https://up6.cc/2026/01/176840436497671.png" className="h-16 object-contain brightness-0 invert" alt="Logo" />
+            <img src="https://up6.cc/2026/01/176840436497671.png" className="h-14 object-contain brightness-0 invert" alt="Logo" />
           </div>
 
-          <div className="px-10 py-5 flex-1 flex flex-col overflow-hidden">
-            {/* عنوان البطاقة */}
-            <div className="text-center mb-5">
-              <h1 className="inline-block text-lg font-black text-[#0d333f] px-8 py-2 border-2 border-[#009688] rounded-xl bg-teal-50/10">
+          <div className="px-10 py-5 flex-1 flex flex-col min-h-0">
+            {/* عنوان البطاقة أصغر */}
+            <div className="text-center mb-4">
+              <h1 className="inline-block text-base font-black text-[#0d333f] px-6 py-1.5 border-2 border-[#009688] rounded-lg">
                 بطاقة تقييم الأداء الوظيفي الرقمي
               </h1>
             </div>
 
             {/* بيانات المعلم */}
-            <div className="grid grid-cols-2 gap-4 mb-4 shrink-0">
-              <div className="p-3 rounded-xl bg-slate-50 border border-slate-200">
-                <span className="text-[9px] font-black text-[#009688] block mb-0.5">اسم المعلم:</span>
-                <p className="text-base font-black text-slate-800 leading-none">{submission.teacher?.full_name}</p>
+            <div className="grid grid-cols-2 gap-3 mb-4 shrink-0">
+              <div className="p-2.5 rounded-lg bg-slate-50 border border-slate-200">
+                <span className="text-[8px] font-black text-[#009688] block mb-0.5">اسم المعلم:</span>
+                <p className="text-sm font-black text-slate-800 leading-none">{submission.teacher?.full_name}</p>
               </div>
-              <div className="p-3 rounded-xl bg-slate-50 border border-slate-200 flex justify-between items-center">
+              <div className="p-2.5 rounded-lg bg-slate-50 border border-slate-200 flex justify-between items-center">
                 <div>
-                   <span className="text-[9px] font-black text-[#009688] block mb-0.5">الدرجة النهائية المستحقة:</span>
-                   <p className="text-2xl font-black text-[#0d333f] leading-none">{calculateTotal()} / 100</p>
+                   <span className="text-[8px] font-black text-[#009688] block mb-0.5">الدرجة النهائية المستحقة:</span>
+                   <p className="text-xl font-black text-[#0d333f] leading-none">{calculateTotal()} / 100</p>
                 </div>
-                <div className="px-3 py-1 bg-white rounded-lg border border-[#009688] text-[9px] font-black text-[#009688]">
+                <div className="px-2 py-0.5 bg-white rounded-md border border-[#009688] text-[8px] font-black text-[#009688]">
                   {getGrade(calculateTotal())}
                 </div>
               </div>
             </div>
 
-            {/* جدول المعايير */}
-            <div className="mb-4 border border-[#0d333f] rounded-xl overflow-hidden shrink-0 shadow-sm">
-              <table className="w-full text-[10px]">
+            {/* جدول المعايير مضغوط جداً */}
+            <div className="mb-4 border border-[#0d333f] rounded-lg overflow-hidden shrink-0">
+              <table className="w-full text-[9px]">
                 <thead>
                   <tr className="bg-[#0d333f] text-white">
-                    <th className="py-1.5 px-3 text-right">م</th>
-                    <th className="py-1.5 px-3 text-right">معيار التقييم</th>
-                    <th className="py-1.5 px-3 text-center">الدرجة</th>
+                    <th className="py-1 px-2 text-right border-l border-white/10">م</th>
+                    <th className="py-1 px-2 text-right border-l border-white/10">معيار التقييم</th>
+                    <th className="py-1 px-2 text-center">الدرجة</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-100">
                   {EVALUATION_CRITERIA.map((c, idx) => (
                     <tr key={c.id} className={idx % 2 === 0 ? 'bg-white' : 'bg-slate-50/50'}>
-                      <td className="py-1 px-3 font-bold text-slate-400 border-l border-slate-100">{idx + 1}</td>
-                      <td className="py-1 px-3 font-bold text-slate-700 border-l border-slate-100">{c.label}</td>
-                      <td className="py-1 px-3 text-center font-black text-[#009688] text-sm">{scores[c.id]}</td>
+                      <td className="py-0.5 px-2 font-bold text-slate-400 border-l border-slate-100">{idx + 1}</td>
+                      <td className="py-0.5 px-2 font-bold text-slate-700 border-l border-slate-100">{c.label}</td>
+                      <td className="py-0.5 px-2 text-center font-black text-[#009688] text-sm">{scores[c.id]}</td>
                     </tr>
                   ))}
                 </tbody>
               </table>
             </div>
 
-            {/* التوصيات */}
-            <div className="mb-4 flex-1 min-h-0 overflow-hidden">
-              <div className="bg-amber-50/30 p-4 rounded-xl border border-amber-100 relative h-full">
-                <div className="absolute -top-2 right-4 px-3 bg-amber-100 text-amber-800 text-[8px] font-black rounded-full">توصيات التطوير المهني المعتمدة</div>
-                <div className="text-[10px] leading-relaxed text-slate-700 font-medium whitespace-pre-wrap h-full overflow-hidden">
+            {/* قسم التوصيات - يظهر الآن بوضوح */}
+            <div className="flex-1 min-h-0 mb-4 flex flex-col">
+              <div className="bg-amber-50/30 p-3 rounded-lg border border-amber-100 flex-1 relative flex flex-col">
+                <div className="absolute -top-1.5 right-3 px-2 bg-amber-100 text-amber-800 text-[8px] font-black rounded-full">توصيات التطوير المهني</div>
+                <div className="text-[10px] leading-relaxed text-slate-700 font-medium whitespace-pre-wrap overflow-hidden h-full">
                   {recommendations || "لا توجد توصيات إضافية لهذا التقييم."}
                 </div>
               </div>
             </div>
 
-            {/* التوقيعات */}
-            <div className="mt-auto pt-4 border-t border-slate-100 flex justify-between items-end px-4 shrink-0">
-              <div className="text-right space-y-1">
-                <p className="text-[8px] text-slate-400 font-bold tracking-tighter">معرف التقرير الرقمي: {submission.id.substring(0,8).toUpperCase()}</p>
-                <p className="text-[8px] text-slate-400 font-bold">تاريخ الاعتماد الرسمي: {new Date().toLocaleDateString('ar-SA')}</p>
-                <div className="pt-4">
-                   <p className="text-[9px] font-black text-slate-500 mb-4">توقيع المعلم المقيم:</p>
-                   <p className="text-xs font-black border-b border-slate-200 pb-1 w-40">{submission.teacher?.full_name}</p>
+            {/* التوقيعات بالأسفل */}
+            <div className="mt-auto pt-3 border-t border-slate-100 flex justify-between items-end px-2 shrink-0">
+              <div className="text-right space-y-0.5">
+                <p className="text-[7px] text-slate-400 font-bold">معرف: {submission.id.substring(0,8).toUpperCase()}</p>
+                <p className="text-[7px] text-slate-400 font-bold">تاريخ: {new Date().toLocaleDateString('ar-SA')}</p>
+                <div className="pt-2">
+                   <p className="text-[8px] font-black text-slate-500 mb-2">توقيع المعلم:</p>
+                   <p className="text-[10px] font-black border-b border-slate-200 pb-0.5 w-32">{submission.teacher?.full_name}</p>
                 </div>
               </div>
 
               <div className="text-center flex flex-col items-center">
-                 <p className="text-[10px] font-black text-[#0d333f] mb-6">يعتمد مدير المدرسة</p>
-                 <p className="text-lg font-black text-[#0d333f] mb-1">نايف أحمد الشهري</p>
-                 <div className="w-40 h-0.5 bg-gradient-to-r from-transparent via-[#009688] to-transparent rounded-full opacity-20"></div>
+                 <p className="text-[9px] font-black text-[#0d333f] mb-4">يعتمد مدير المدرسة</p>
+                 <p className="text-base font-black text-[#0d333f] mb-0.5">نايف أحمد الشهري</p>
+                 <div className="w-32 h-0.5 bg-[#009688] opacity-20 rounded-full"></div>
               </div>
             </div>
           </div>
@@ -283,34 +284,37 @@ const EvaluationModal: React.FC<{ submission: Submission; onClose: () => void }>
       </div>
 
       <style dangerouslySetInnerHTML={{ __html: `
+        @media screen {
+          .print-only-container { display: none !important; }
+        }
         @media print {
           @page {
             size: A4;
-            margin: 0mm !important;
+            margin: 0 !important;
           }
-          html, body {
-            height: 100%;
+          #root { display: none !important; }
+          .no-print { display: none !important; }
+          body {
             margin: 0 !important;
             padding: 0 !important;
             overflow: hidden !important;
+            -webkit-print-color-adjust: exact !important;
           }
-          .no-print { display: none !important; }
-          .print-page-container {
-            width: 210mm !important;
-            height: 297mm !important;
+          .print-only-container {
+            display: block !important;
             position: absolute !important;
             top: 0 !important;
             left: 0 !important;
-            margin: 0 !important;
-            padding: 0 !important;
-            overflow: hidden !important;
-            display: flex !important;
-            flex-direction: column !important;
+            width: 100% !important;
+            height: 100% !important;
             background: white !important;
-            -webkit-print-color-adjust: exact !important;
-            color-adjust: exact !important;
           }
-          tr, div, p { page-break-inside: avoid; }
+          .print-content-box {
+            width: 210mm !important;
+            height: 297mm !important;
+            margin: 0 auto !important;
+            padding: 0 !important;
+          }
         }
       `}} />
     </>
