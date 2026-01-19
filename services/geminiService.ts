@@ -1,7 +1,11 @@
 
 import { GoogleGenAI } from "@google/genai";
 
-const ai = new GoogleGenAI({ apiKey: process.env.API_KEY || '' });
+// سيقوم النظام بقراءة المفتاح من متغيرات البيئة في Vercel
+// في حال عدم وجوده (مثلاً عند التشغيل المحلي) نضع المفتاح الذي زودتنا به كقيمة افتراضية مؤقتة
+const API_KEY = process.env.API_KEY || 'AlzaSyCkyrRevcAKm_avSQXHeoPJwPU3Se7png4';
+
+const ai = new GoogleGenAI({ apiKey: API_KEY });
 
 export const analyzeTeacherReport = async (driveLink: string) => {
   const prompt = `
@@ -27,9 +31,19 @@ export const analyzeTeacherReport = async (driveLink: string) => {
       }
     });
 
+    if (!response.text) {
+      throw new Error("Empty response from AI");
+    }
+
     return JSON.parse(response.text);
   } catch (error) {
     console.error("AI Analysis Error:", error);
-    return null;
+    // في حال فشل الـ API أو المفتاح، نرجع كائن افتراضي لتجنب تعليق الموقع
+    return {
+      summary: "فشل في الاتصال بمحرك الذكاء الاصطناعي. يرجى التحقق من مفتاح API في إعدادات Vercel.",
+      suggested_scores: [1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1],
+      recommendations: ["تحقق من إعدادات الـ API Key", "تأكد من اتصال الإنترنت"],
+      reasons: "حدث خطأ تقني أثناء التحليل."
+    };
   }
 };
