@@ -27,7 +27,8 @@ const EvaluationModal: React.FC<{ submission: Submission; onClose: () => void }>
     if (!error && data) {
       setAiAnalysis(data.ai_analysis);
       if (data.scores) setScores(data.scores);
-      if (data.ai_analysis.includes('التوصيات:')) {
+      // محاولة استخراج التوصيات إذا كانت مخزنة ضمن التحليل
+      if (data.ai_analysis && data.ai_analysis.includes('التوصيات:')) {
         const parts = data.ai_analysis.split('التوصيات:');
         setRecommendations(parts[1].trim());
       }
@@ -70,10 +71,11 @@ const EvaluationModal: React.FC<{ submission: Submission; onClose: () => void }>
     setIsSaving(true);
     const total = calculateTotal();
     try {
+      const fullAnalysisText = aiAnalysis + (recommendations ? "\n\nالتوصيات:\n" + recommendations : "");
       await supabase.from('evaluations').upsert({
         submission_id: submission.id,
         teacher_id: submission.teacher_id,
-        ai_analysis: aiAnalysis + (recommendations ? "\n\nالتوصيات:\n" + recommendations : ""),
+        ai_analysis: fullAnalysisText,
         total_score: total,
         overall_grade: getGrade(total),
         scores: scores
@@ -98,6 +100,7 @@ const EvaluationModal: React.FC<{ submission: Submission; onClose: () => void }>
 
   return (
     <>
+      {/* واجهة العرض داخل النظام */}
       <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/95 backdrop-blur-md overflow-y-auto no-print">
         <div className="bg-white w-full max-w-6xl rounded-[3rem] shadow-2xl flex flex-col max-h-[95vh] overflow-hidden">
           <div className="p-8 flex justify-between items-center bg-[#0d333f] text-white">
@@ -168,65 +171,120 @@ const EvaluationModal: React.FC<{ submission: Submission; onClose: () => void }>
         </div>
       </div>
 
-      {/* نسخة الطباعة المتوافقة مع الهوية الجديدة */}
-      <div className="hidden print-only fixed inset-0 bg-white p-0 text-black z-[100] text-right font-['Tajawal']" dir="rtl">
-          <div className="border-[12px] border-[#0d333f] m-0 p-0 min-h-screen flex flex-col relative overflow-hidden bg-white">
-            <div className="bg-[#0d333f] text-white p-12 flex items-center justify-between">
-                <div className="text-[14px] font-medium space-y-1">
-                   <p>المملكة العربية السعودية</p>
-                   <p>وزارة التعليم</p>
-                   <p>تعليم محافظة جدة</p>
-                   <p className="font-black text-2xl">ثانوية الأمير عبدالمجيد الأولى</p>
-                </div>
-                <img src="https://up6.cc/2026/01/176840436497671.png" className="h-28 object-contain" alt="Logo" />
+      {/* نموذج الطباعة الرسمي المطور (ورقة واحدة أنيقة) */}
+      <div className="hidden print:block fixed inset-0 bg-white text-black z-[100] p-0" dir="rtl">
+        <div className="w-[210mm] h-[297mm] mx-auto bg-white border-[1px] border-slate-100 relative overflow-hidden flex flex-col">
+          
+          {/* خلفية جمالية خفيفة للطباعة */}
+          <div className="absolute top-0 right-0 w-full h-full opacity-[0.03] pointer-events-none bg-[url('https://www.transparenttextures.com/patterns/cubes.png')]"></div>
+
+          {/* الترويسة الرسمية */}
+          <div className="bg-[#0d333f] text-white p-10 flex justify-between items-center">
+            <div className="space-y-1 text-sm font-bold">
+              <p>المملكة العربية السعودية</p>
+              <p>وزارة التعليم</p>
+              <p>الإدارة العامة للتعليم بجدة</p>
+              <p className="text-xl font-black pt-1">ثانوية الأمير عبدالمجيد الأولى</p>
             </div>
-            <div className="px-16 py-12 flex-1">
-               <div className="text-center mb-12">
-                  <div className="inline-block border-2 border-[#009688] px-20 py-4 bg-[#f0f9fa] rounded-3xl">
-                     <h1 className="text-3xl font-black text-[#0d333f]">بطاقة تقييم الأداء الوظيفي الرقمي</h1>
-                  </div>
-               </div>
-               <div className="grid grid-cols-2 gap-10 mb-10">
-                  <div className="bg-slate-50 p-8 rounded-3xl border-2 border-slate-100">
-                     <p className="font-black text-[#009688] mb-1">اسم المعلم:</p>
-                     <p className="text-2xl font-black">{submission.teacher?.full_name}</p>
-                  </div>
-                  <div className="bg-slate-50 p-8 rounded-3xl border-2 border-slate-100">
-                     <p className="font-black text-[#009688] mb-1">الدرجة النهائية المعتمدة:</p>
-                     <p className="text-4xl font-black text-[#0d333f]">{calculateTotal()} / 100</p>
-                  </div>
-               </div>
-               <table className="w-full border-collapse border-2 border-[#0d333f] mb-12 rounded-2xl overflow-hidden">
-                  <thead>
-                     <tr className="bg-[#0d333f] text-white">
-                        <th className="p-4 text-right">معيار التقييم</th>
-                        <th className="p-4 text-center">الدرجة</th>
-                     </tr>
-                  </thead>
-                  <tbody>
-                     {EVALUATION_CRITERIA.map(c => (
-                       <tr key={c.id} className="border-b border-slate-100">
-                          <td className="p-4 font-bold text-sm">{c.label}</td>
-                          <td className="p-4 text-center text-xl font-black text-[#009688]">{scores[c.id]}</td>
-                       </tr>
-                     ))}
-                  </tbody>
-               </table>
-               <div className="flex justify-between items-end mt-20">
-                  <div className="text-right space-y-2 opacity-50">
-                     <p className="text-xs">رقم التقرير الرقمي: {submission.id.substring(0,8)}</p>
-                     <p className="text-xs">تاريخ الاعتماد: {new Date().toLocaleDateString('ar-SA')}</p>
-                  </div>
-                  <div className="text-center w-80">
-                     <p className="font-black text-2xl mb-8">مدير المدرسة</p>
-                     <p className="font-black text-3xl text-[#0d333f]">نايف أحمد الشهري</p>
-                     <div className="h-1 w-full bg-[#009688] mt-4 rounded-full"></div>
-                  </div>
-               </div>
+            <div className="flex flex-col items-center gap-2">
+              <img src="https://up6.cc/2026/01/176840436497671.png" className="h-24 object-contain brightness-0 invert" alt="Logo" />
             </div>
-            <div className="h-6 w-full bg-gradient-to-r from-[#00a19b] via-[#00737a] to-[#00a19b] mt-auto"></div>
           </div>
+
+          <div className="p-10 flex-1 flex flex-col">
+            {/* عنوان البطاقة */}
+            <div className="text-center mb-10">
+              <div className="inline-block relative">
+                <h1 className="text-3xl font-black text-[#0d333f] mb-2 px-10 py-4 border-2 border-[#009688] rounded-2xl bg-teal-50/30">
+                  بطاقة تقييم الأداء الوظيفي الرقمي
+                </h1>
+              </div>
+            </div>
+
+            {/* بيانات المعلم الأساسية */}
+            <div className="grid grid-cols-2 gap-6 mb-8">
+              <div className="p-5 rounded-2xl bg-slate-50 border border-slate-200">
+                <span className="text-[10px] font-black text-[#009688] block mb-1">اسم المعلم:</span>
+                <p className="text-xl font-black text-slate-800">{submission.teacher?.full_name}</p>
+              </div>
+              <div className="p-5 rounded-2xl bg-slate-50 border border-slate-200 flex justify-between items-center">
+                <div>
+                   <span className="text-[10px] font-black text-[#009688] block mb-1">الدرجة النهائية:</span>
+                   <p className="text-3xl font-black text-[#0d333f]">{calculateTotal()} / 100</p>
+                </div>
+                <div className="px-4 py-2 bg-white rounded-xl border-2 border-[#009688] text-xs font-black text-[#009688]">
+                  {getGrade(calculateTotal())}
+                </div>
+              </div>
+            </div>
+
+            {/* جدول المعايير والدرجات - مكثف ليناسب صفحة واحدة */}
+            <div className="mb-8 border-2 border-[#0d333f] rounded-2xl overflow-hidden shadow-sm">
+              <table className="w-full text-sm">
+                <thead>
+                  <tr className="bg-[#0d333f] text-white">
+                    <th className="p-3 text-right border-l border-white/10">م</th>
+                    <th className="p-3 text-right border-l border-white/10">معيار التقييم</th>
+                    <th className="p-3 text-center">الدرجة</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-200">
+                  {EVALUATION_CRITERIA.map((c, idx) => (
+                    <tr key={c.id} className={idx % 2 === 0 ? 'bg-white' : 'bg-slate-50'}>
+                      <td className="p-2.5 text-right font-bold text-slate-400 border-l border-slate-100">{idx + 1}</td>
+                      <td className="p-2.5 text-right font-bold text-slate-700 border-l border-slate-100">{c.label}</td>
+                      <td className="p-2.5 text-center font-black text-[#009688] text-lg">{scores[c.id]}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+
+            {/* قسم التوصيات - مهم جداً */}
+            <div className="mb-8 flex-1">
+              <div className="bg-amber-50/50 p-6 rounded-3xl border-2 border-amber-200/50 relative">
+                <div className="absolute -top-3 right-6 px-4 bg-amber-200 text-amber-800 text-[10px] font-black rounded-full">توصيات التطوير المهني</div>
+                <div className="text-sm leading-relaxed text-slate-700 font-medium whitespace-pre-wrap">
+                  {recommendations || "لا توجد توصيات إضافية لهذا التقييم."}
+                </div>
+              </div>
+            </div>
+
+            {/* قسم التوقيعات والاعتماد */}
+            <div className="mt-auto pt-10 border-t-2 border-slate-100 flex justify-between items-end px-4">
+              <div className="text-right space-y-2">
+                <p className="text-[10px] text-slate-400 font-bold">معرف التقرير: <span className="font-mono">{submission.id.substring(0,8)}</span></p>
+                <p className="text-[10px] text-slate-400 font-bold">تاريخ الاعتماد: {new Date().toLocaleDateString('ar-SA')}</p>
+                <div className="pt-6">
+                   <p className="text-xs font-black text-slate-500 mb-6">توقيع المعلم المقيم:</p>
+                   <p className="text-sm font-black border-b border-slate-200 pb-2 w-48">{submission.teacher?.full_name}</p>
+                </div>
+              </div>
+
+              <div className="text-center flex flex-col items-center">
+                 <p className="text-sm font-black text-[#0d333f] mb-8">يعتمد مدير المدرسة</p>
+                 <div className="relative">
+                    {/* هنا يمكن إضافة ختم المدرسة مستقبلاً */}
+                    <p className="text-2xl font-black text-[#0d333f]">نايف أحمد الشهري</p>
+                 </div>
+                 <div className="mt-4 w-56 h-1 bg-gradient-to-r from-transparent via-[#009688] to-transparent rounded-full opacity-30"></div>
+              </div>
+            </div>
+          </div>
+
+          {/* الفوتر الملون */}
+          <div className="h-4 w-full bg-gradient-to-r from-[#00a19b] via-[#00737a] to-[#00a19b]"></div>
+        </div>
       </div>
+
+      <style dangerouslySetInnerHTML={{ __html: `
+        @media print {
+          body { background: white !important; margin: 0; padding: 0; }
+          .no-print { display: none !important; }
+          @page { size: A4; margin: 0; }
+          .print-block { display: block !important; }
+        }
+      `}} />
     </>
   );
 };
