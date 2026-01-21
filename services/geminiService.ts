@@ -1,10 +1,7 @@
 
 import { GoogleGenAI } from "@google/genai";
 
-// سيقوم النظام بقراءة المفتاح من متغيرات البيئة في Vercel
-// في حال عدم وجوده (مثلاً عند التشغيل المحلي) نضع المفتاح الذي زودتنا به كقيمة افتراضية مؤقتة
 const API_KEY = process.env.API_KEY || 'AlzaSyCkyrRevcAKm_avSQXHeoPJwPU3Se7png4';
-
 const ai = new GoogleGenAI({ apiKey: API_KEY });
 
 export const analyzeTeacherReport = async (driveLink: string) => {
@@ -16,9 +13,9 @@ export const analyzeTeacherReport = async (driveLink: string) => {
     1. "summary": ملخص واقعي ونقدي جداً لما تم رصده في الرابط (كن حذراً إذا كان الرابط لا يحتوي شواهد).
     2. "suggested_scores": مصفوفة تحتوي على الدرجة المقترحة (من 1 إلى 5) لكل عنصر من العناصر الـ 11 بالترتيب.
     3. "recommendations": أهم 3 توصيات عملية لتحسين أداء المعلم.
-    4. "reasons": مبررات الدرجات المقترحة.
+    4. "reasons": مبررات الدرجات المقترحة (مبررات نقدية ومنصفة).
 
-    ملاحظة هامة: إذا وجد مديحاً لا يستند لشواهد، استبدله بنقد بناء.
+    ملاحظة هامة: إذا وجدت مديحاً لا يستند لشواهد، استبدله بنقد بناء. كن منصفاً وعادلاً ولا تجامل.
   `;
 
   try {
@@ -31,18 +28,14 @@ export const analyzeTeacherReport = async (driveLink: string) => {
       }
     });
 
-    if (!response.text) {
-      throw new Error("Empty response from AI");
-    }
-
+    if (!response.text) throw new Error("Empty response");
     return JSON.parse(response.text);
   } catch (error) {
     console.error("AI Analysis Error:", error);
-    // في حال فشل الـ API أو المفتاح، نرجع كائن افتراضي لتجنب تعليق الموقع
     return {
-      summary: "فشل في الاتصال بمحرك الذكاء الاصطناعي. يرجى التحقق من مفتاح API في إعدادات Vercel.",
+      summary: "فشل في الاتصال بمحرك الذكاء الاصطناعي. يرجى التحقق من الرابط يدوياً.",
       suggested_scores: [1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1],
-      recommendations: ["تحقق من إعدادات الـ API Key", "تأكد من اتصال الإنترنت"],
+      recommendations: ["تحقق من صلاحية الرابط", "أعد المحاولة لاحقاً"],
       reasons: "حدث خطأ تقني أثناء التحليل."
     };
   }

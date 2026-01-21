@@ -61,16 +61,18 @@ const EvaluationModal: React.FC<{ submission: Submission; onClose: () => void }>
     return Math.round(total);
   };
 
-  const getGrade = (total: number) => {
-    if (total >= 90) return 'ممتاز';
-    if (total >= 80) return 'جيد جداً';
-    if (total >= 70) return 'جيد';
-    return 'مرضي';
+  const getGradeDetails = (total: number) => {
+    if (total >= 90) return { grade: 'ممتاز', score5: 5 };
+    if (total >= 80) return { grade: 'جيد جداً', score5: 4 };
+    if (total >= 70) return { grade: 'جيد', score5: 3 };
+    if (total >= 60) return { grade: 'مرضي / يحتاج تطوير', score5: 2 };
+    return { grade: 'غير مرضي', score5: 1 };
   };
 
   const saveEvaluation = async () => {
     setIsSaving(true);
     const total = calculateTotal();
+    const { grade } = getGradeDetails(total);
     try {
       const fullAnalysisText = aiAnalysis + (recommendations ? "\n\nالتوصيات:\n" + recommendations : "");
       await supabase.from('evaluations').upsert({
@@ -78,7 +80,7 @@ const EvaluationModal: React.FC<{ submission: Submission; onClose: () => void }>
         teacher_id: submission.teacher_id,
         ai_analysis: fullAnalysisText,
         total_score: total,
-        overall_grade: getGrade(total),
+        overall_grade: grade,
         scores: scores
       }, { onConflict: 'submission_id' });
       await supabase.from('submissions').update({ status: 'evaluated' }).eq('id', submission.id);
@@ -93,29 +95,30 @@ const EvaluationModal: React.FC<{ submission: Submission; onClose: () => void }>
 
   const shareOnWhatsapp = () => {
     const totalScore = calculateTotal();
-    const currentGrade = getGrade(totalScore);
+    const { grade, score5 } = getGradeDetails(totalScore);
     const recommendationText = recommendations ? `\n\n*توصيات التطوير المهني:*\n${recommendations}` : '';
     
-    const message = `*نتيجة تقييم الأداء الوظيفي الرقمي*\n*مدرسة الأمير عبدالمجيد الأولى*\n------------------\n*المعلم:* ${submission.teacher?.full_name}\n*الدرجة:* ${totalScore}/100\n*التقدير:* ${currentGrade}${recommendationText}\n\n*مدير المدرسة:*\n*نايف أحمد الشهري*`;
+    const message = `*نتيجة تقييم الأداء الوظيفي الرقمي*\n*مدرسة الأمير عبدالمجيد الأولى*\n------------------\n*المعلم:* ${submission.teacher?.full_name}\n*النسبة:* ${totalScore}%\n*الدرجة:* (${score5} من 5)\n*التقدير:* ${grade}${recommendationText}\n\n*مدير المدرسة:*\n*نايف أحمد الشهري*`;
     
     window.open(`https://wa.me/966${submission.teacher?.phone?.substring(1)}?text=${encodeURIComponent(message)}`, '_blank');
   };
 
   const shareDetailedAnalysis = () => {
+    const totalScore = calculateTotal();
+    const { grade, score5 } = getGradeDetails(totalScore);
     const recommendationText = recommendations ? `\n\n*التوصيات المعتمدة:*\n${recommendations}` : '';
     const analysisText = aiAnalysis ? `\n\n*خلاصة التحليل والمبررات:*\n${aiAnalysis}` : '';
     
-    const message = `*تفاصيل تحليل الأداء المهني*\n*مدرسة الأمير عبدالمجيد الأولى*\n------------------\n*المعلم:* ${submission.teacher?.full_name}${analysisText}${recommendationText}\n\n*مدير المدرسة:*\n*نايف أحمد الشهري*`;
+    const message = `*تفاصيل تحليل الأداء المهني*\n*مدرسة الأمير عبدالمجيد الأولى*\n------------------\n*المعلم:* ${submission.teacher?.full_name}\n*النتيجة:* ${totalScore}% (${grade} - ${score5}/5)${analysisText}${recommendationText}\n\n*مدير المدرسة:*\n*نايف أحمد الشهري*`;
     
     window.open(`https://wa.me/966${submission.teacher?.phone?.substring(1)}?text=${encodeURIComponent(message)}`, '_blank');
   };
 
   const total = calculateTotal();
-  const grade = getGrade(total);
+  const { grade, score5 } = getGradeDetails(total);
 
   return (
     <>
-      {/* واجهة التفاعل - تظهر في المتصفح فقط */}
       <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/90 backdrop-blur-sm overflow-y-auto no-print">
         <div className="bg-white w-full max-w-6xl rounded-[3rem] shadow-2xl flex flex-col max-h-[95vh] overflow-hidden">
           <div className="p-6 flex justify-between items-center bg-[#0d333f] text-white shrink-0">
@@ -130,10 +133,9 @@ const EvaluationModal: React.FC<{ submission: Submission; onClose: () => void }>
           
           <div className="flex-1 overflow-y-auto p-8 bg-[#f8fafc]">
             <div className="grid lg:grid-cols-2 gap-8">
-              {/* قسم المعايير والدرجات */}
               <div className="space-y-6">
                 <div className="bg-white p-8 rounded-[2.5rem] border border-slate-200 shadow-sm">
-                  <h3 className="text-lg font-black text-slate-800 mb-6 flex items-center gap-2">رصد المعايير الوظيفية</h3>
+                  <h3 className="text-lg font-black text-slate-800 mb-6 flex items-center gap-2">رصد المعايير الوظيفية (من 5)</h3>
                   <div className="space-y-2">
                     {EVALUATION_CRITERIA.map(c => (
                       <div key={c.id} className="flex items-center justify-between p-3 bg-slate-50 rounded-2xl">
@@ -150,19 +152,29 @@ const EvaluationModal: React.FC<{ submission: Submission; onClose: () => void }>
                   </div>
                 </div>
 
-                <div className="bg-[#009688] p-8 rounded-[2.5rem] text-white flex justify-between items-center shadow-lg">
-                   <div>
-                      <p className="text-xs opacity-60 mb-1 font-bold">المجموع النهائي</p>
-                      <h4 className="text-5xl font-black">{total} <span className="text-sm opacity-30">/ 100</span></h4>
+                <div className="bg-[#009688] p-8 rounded-[2.5rem] text-white flex justify-between items-center shadow-lg relative overflow-hidden group">
+                   <div className="relative z-10">
+                      <p className="text-xs opacity-60 mb-1 font-bold">النسبة المئوية</p>
+                      <h4 className="text-6xl font-black tracking-tighter">{total}%</h4>
                    </div>
-                   <span className="text-2xl font-black bg-white/10 px-8 py-4 rounded-3xl border border-white/10">{grade}</span>
+                   
+                   {/* سلم التقدير المطلوب (من 5) */}
+                   <div className="relative z-10 bg-white/10 backdrop-blur-md px-6 py-4 rounded-3xl border border-white/20 text-center min-w-[140px]">
+                      <p className="text-[10px] font-black uppercase opacity-60 mb-1">الدرجة من 5</p>
+                      <div className="text-4xl font-black">{score5}</div>
+                      <p className="text-[10px] font-bold mt-1">مستوى الأداء</p>
+                   </div>
+
+                   <div className="relative z-10 text-right">
+                      <span className="text-lg font-black bg-white text-[#009688] px-6 py-3 rounded-2xl shadow-xl inline-block mb-1">{grade}</span>
+                      <p className="text-[10px] opacity-70 font-bold italic block">سلم التقدير المعتمد</p>
+                   </div>
                 </div>
               </div>
 
-              {/* قسم التحليل والتوصيات */}
               <div className="space-y-6">
                 <button onClick={runAIAndAutoFill} disabled={isAnalyzing} className="w-full py-5 bg-[#009688] text-white rounded-[2rem] text-lg font-black shadow-xl hover:brightness-110 transition-all">
-                   {isAnalyzing ? 'جاري التحليل الذكي...' : 'تفعيل التحليل الذكي للشواهد'}
+                   {isAnalyzing ? 'جاري التحليل المنصف...' : 'تفعيل التحليل الذكي العملي'}
                 </button>
                 
                 <div className="bg-white p-6 rounded-[2.5rem] border border-slate-200">
@@ -175,20 +187,17 @@ const EvaluationModal: React.FC<{ submission: Submission; onClose: () => void }>
                   <textarea value={recommendations} onChange={e => setRecommendations(e.target.value)} className="w-full h-24 bg-white/50 p-4 rounded-2xl text-sm border-none outline-none resize-none font-medium leading-relaxed" />
                 </div>
 
-                {/* أزرار الإجراءات - تم إضافة زر واتساب تفصيلي */}
                 <div className="flex flex-col gap-3">
                   <div className="grid grid-cols-2 gap-3">
                      <button onClick={saveEvaluation} className="py-5 bg-[#0d333f] text-white rounded-3xl font-black shadow-lg">حفظ التقييم</button>
                      <button onClick={() => window.print()} className="py-5 bg-slate-200 text-[#0d333f] rounded-3xl font-black shadow-sm">طباعة التقرير</button>
                   </div>
                   <div className="grid grid-cols-2 gap-3">
-                     <button onClick={shareOnWhatsapp} className="py-5 bg-[#25D366] text-white rounded-3xl font-black shadow-lg flex items-center justify-center gap-2 hover:brightness-105 transition-all">
-                        <svg className="w-5 h-5" fill="currentColor" viewBox="0 0 24 24"><path d="M17.472 14.382c-.297-.149-1.758-.867-2.03-.967-.273-.099-.471-.148-.67.15-.197.297-.767.966-.94 1.164-.173.199-.347.223-.644.075-.297-.15-1.255-.463-2.39-1.475-.883-.788-1.48-1.761-1.653-2.059-.173-.297-.018-.458.13-.606.134-.133.298-.347.446-.52.149-.174.198-.298.298-.497.099-.198.05-.371-.025-.52-.075-.149-.669-1.612-.916-2.207-.242-.579-.487-.5-.669-.51-.173-.008-.371-.01-.57-.01-.198 0-.52.074-.792.372-.272.297-1.04 1.016-1.04 2.479 0 1.462 1.065 2.875 1.213 3.074.149.198 2.096 3.2 5.077 4.487.709.306 1.262.489 1.694.625.712.227 1.36.195 1.871.118.571-.085 1.758-.719 2.006-1.413.248-.694.248-1.289.173-1.413-.074-.124-.272-.198-.57-.347m-5.421 7.403h-.004a9.87 9.87 0 01-5.031-1.378l-.361-.214-3.741.982.998-3.648-.235-.374a9.86 9.86 0 01-1.51-5.26c.001-5.45 4.436-9.884 9.888-9.884 2.64 0 5.122 1.03 6.988 2.898a9.825 9.825 0 012.893 6.994c-.003 5.45-4.437 9.884-9.885 9.884m8.413-18.297A11.815 11.815 0 0012.05 0C5.495 0 .16 5.335.157 11.892c0 2.096.547 4.142 1.588 5.945L.057 24l6.305-1.654a11.882 11.882 0 005.683 1.448h.005c6.554 0 11.89-5.335 11.893-11.893a11.821 11.821 0 00-3.48-8.413z"/></svg>
-                        النتيجة (مختصر)
+                     <button onClick={shareOnWhatsapp} className="py-5 bg-[#25D366] text-white rounded-3xl font-black shadow-lg flex items-center justify-center gap-2 hover:brightness-105 transition-all text-xs">
+                        واتساب (مختصر)
                      </button>
-                     <button onClick={shareDetailedAnalysis} className="py-5 bg-teal-600 text-white rounded-3xl font-black shadow-lg flex items-center justify-center gap-2 hover:bg-teal-700 transition-all border-b-4 border-teal-800">
-                        <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M8 10h.01M12 10h.01M16 10h.01M9 16H5a2 2 0 01-2-2V6a2 2 0 012-2h14a2 2 0 012 2v8a2 2 0 01-2 2h-5l-5 5v-5z"></path></svg>
-                        التحليل (تفصيلي)
+                     <button onClick={shareDetailedAnalysis} className="py-5 bg-teal-600 text-white rounded-3xl font-black shadow-lg flex items-center justify-center gap-2 hover:bg-teal-700 transition-all text-xs">
+                        واتساب (تفصيلي)
                      </button>
                   </div>
                 </div>
@@ -198,11 +207,8 @@ const EvaluationModal: React.FC<{ submission: Submission; onClose: () => void }>
         </div>
       </div>
 
-      {/* التقرير النهائي للطباعة - تم حل مشكلة الصفحة البيضاء والتكرار */}
       <div id="final-print-report" className="hidden print:block bg-white text-black" dir="rtl">
         <div className="a4-page mx-auto bg-white flex flex-col" style={{ width: '210mm', height: '297mm', padding: '0' }}>
-          
-          {/* ترويسة مكبوسة */}
           <div className="bg-[#0d333f] text-white p-4 flex justify-between items-center w-full">
             <div className="text-[9px] font-bold leading-tight">
               <p>المملكة العربية السعودية</p>
@@ -225,13 +231,18 @@ const EvaluationModal: React.FC<{ submission: Submission; onClose: () => void }>
                 <span className="text-[8px] font-black text-slate-400 block mb-1">اسم المعلم:</span>
                 <p className="text-sm font-black text-slate-800">{submission.teacher?.full_name}</p>
               </div>
-              <div className="p-3 bg-slate-50 border border-slate-200 rounded-xl flex justify-between items-center">
-                <div>
-                   <span className="text-[8px] font-black text-slate-400 block mb-1">الدرجة النهائية:</span>
-                   <p className="text-xl font-black text-[#0d333f]">{total} / 100</p>
+              <div className="p-3 bg-slate-50 border border-slate-200 rounded-xl flex justify-between gap-4 items-center">
+                <div className="text-center">
+                   <span className="text-[8px] font-black text-slate-400 block mb-1">النسبة:</span>
+                   <p className="text-lg font-black text-[#0d333f]">{total}%</p>
                 </div>
-                <div className="px-3 py-1 bg-white border border-[#009688] rounded-lg text-[10px] font-black text-[#009688]">
-                  {grade}
+                <div className="text-center border-x border-slate-200 px-4">
+                   <span className="text-[8px] font-black text-slate-400 block mb-1">الدرجة:</span>
+                   <p className="text-lg font-black text-[#009688]">{score5}/5</p>
+                </div>
+                <div className="text-center">
+                   <span className="text-[8px] font-black text-slate-400 block mb-1">التقدير:</span>
+                   <p className="text-[10px] font-black text-[#0d333f]">{grade}</p>
                 </div>
               </div>
             </div>
@@ -242,7 +253,7 @@ const EvaluationModal: React.FC<{ submission: Submission; onClose: () => void }>
                   <tr>
                     <th className="py-1 px-3 text-right border-l border-white/10 w-8">م</th>
                     <th className="py-1 px-3 text-right border-l border-white/10">معيار التقييم المعتمد</th>
-                    <th className="py-1 px-3 text-center w-16">الدرجة</th>
+                    <th className="py-1 px-3 text-center w-16">الدرجة (5)</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-100">
@@ -257,7 +268,6 @@ const EvaluationModal: React.FC<{ submission: Submission; onClose: () => void }>
               </table>
             </div>
 
-            {/* منطقة التوصيات المظهورة بوضوح */}
             <div className="mb-4">
               <div className="bg-amber-50/30 p-4 rounded-xl border border-amber-100 relative">
                 <span className="absolute -top-2 right-4 px-3 bg-amber-100 text-amber-900 text-[9px] font-black rounded-full">توصيات التطوير المهني المعتمدة</span>
@@ -267,7 +277,6 @@ const EvaluationModal: React.FC<{ submission: Submission; onClose: () => void }>
               </div>
             </div>
 
-            {/* التواقيع مرفوعة */}
             <div className="mt-auto border-t border-slate-100 pt-4 flex justify-between items-end pb-8">
               <div className="text-right">
                 <p className="text-[7px] text-slate-300 font-bold mb-4">معرف التقرير: {submission.id.substring(0,8).toUpperCase()}</p>
@@ -292,33 +301,16 @@ const EvaluationModal: React.FC<{ submission: Submission; onClose: () => void }>
           #final-print-report { display: none !important; }
         }
         @media print {
-          @page {
-            size: A4;
-            margin: 0mm !important;
-          }
-          /* إخفاء شامل لكل شيء عدا التقرير */
+          @page { size: A4; margin: 0mm !important; }
           body * { visibility: hidden !important; }
-          #final-print-report, #final-print-report * {
-            visibility: visible !important;
-          }
+          #final-print-report, #final-print-report * { visibility: visible !important; }
           #final-print-report {
             display: block !important;
             position: absolute !important;
-            top: 0 !important;
-            left: 0 !important;
-            width: 210mm !important;
-            height: 297mm !important;
-            margin: 0 !important;
-            padding: 0 !important;
-            background: white !important;
-            z-index: 999999 !important;
-          }
-          .a4-page {
-            box-shadow: none !important;
-            border: none !important;
-            overflow: hidden !important;
-            page-break-after: avoid !important;
-            page-break-before: avoid !important;
+            top: 0 !important; left: 0 !important;
+            width: 210mm !important; height: 297mm !important;
+            margin: 0 !important; padding: 0 !important;
+            background: white !important; z-index: 999999 !important;
           }
           * { -webkit-print-color-adjust: exact !important; print-color-adjust: exact !important; }
         }
