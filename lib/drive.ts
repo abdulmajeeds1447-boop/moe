@@ -3,6 +3,29 @@ import { google } from 'googleapis';
 
 const SCOPES = ['https://www.googleapis.com/auth/drive.readonly'];
 
+async function listFilesRecursive(drive: any, folderId: string, folderPath: string = "") {
+  let allFiles: any[] = [];
+  
+  const response = await drive.files.list({
+    q: `'${folderId}' in parents and trashed = false`,
+    fields: 'files(id, name, mimeType)',
+  });
+
+  const files = response.data.files || [];
+
+  for (const file of files) {
+    if (file.mimeType === 'application/vnd.google-apps.folder') {
+      // إذا كان مجلداً، ادخل بداخله
+      const subFiles = await listFilesRecursive(drive, file.id, `${folderPath}${file.name} / `);
+      allFiles = [...allFiles, ...subFiles];
+    } else if (file.mimeType === 'application/pdf' || file.mimeType.startsWith('image/')) {
+      // إذا كان ملفاً مدعوماً، أضفه مع مساره
+      allFiles.push({ ...file, path: folderPath + file.name });
+    }
+  }
+  return allFiles;
+}
+
 export async function getDriveFiles(folderUrl: string) {
   try {
     const folderId = extractFolderId(folderUrl);
@@ -17,16 +40,14 @@ export async function getDriveFiles(folderUrl: string) {
 
     const drive = google.drive({ version: 'v3', auth });
 
-    const response = await drive.files.list({
-      q: `'${folderId}' in parents and trashed = false and (mimeType = 'application/pdf' or mimeType contains 'image/')`,
-      fields: 'files(id, name, mimeType)',
-    });
-
-    const files = response.data.files || [];
+    // جلب كافة الملفات من المجلد الرئيسي والفرعي
+    const filesMetadata = await listFilesRecursive(drive, folderId);
     
-    // تحسين السرعة: تحميل جميع الملفات بالتوازي بدلاً من التحميل المتسلسل
-    const downloadPromises = files.map(async (file) => {
-      if (!file.id) return null;
+    if (filesMetadata.length === 0) return [];
+
+    // تحميل محتوى الملفات (أول 15 ملف فقط لضمان سرعة الـ API)
+    const limitedFiles = filesMetadata.slice(0, 15);
+    const downloadPromises = limitedFiles.map(async (file) => {
       try {
         const res = await drive.files.get(
           { fileId: file.id, alt: 'media' },
@@ -34,12 +55,11 @@ export async function getDriveFiles(folderUrl: string) {
         );
         return {
           id: file.id,
-          name: file.name,
+          name: file.path, // نستخدم المسار الكامل كاسم ليعرفه الذكاء الاصطناعي
           mimeType: file.mimeType,
           buffer: new Uint8Array(res.data as ArrayBuffer),
         };
       } catch (err) {
-        console.error(`Error downloading file ${file.name}:`, err);
         return null;
       }
     });
@@ -49,7 +69,7 @@ export async function getDriveFiles(folderUrl: string) {
 
   } catch (error: any) {
     console.error('Google Drive Error:', error.message);
-    throw new Error('فشل الوصول إلى ملفات Google Drive. تأكد من مشاركة المجلد بشكل صحيح (أي شخص لديه الرابط).');
+    throw new Error('فشل الوصول لمجلد الشواهد. تأكد من مشاركة المجلد بشكل صحيح.');
   }
 }
 
