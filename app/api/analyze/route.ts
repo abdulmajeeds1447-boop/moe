@@ -1,8 +1,9 @@
-
 import { NextResponse } from 'next/server';
 import { getDriveFiles } from '../../../lib/drive';
 import { parseFileContent } from '../../../lib/parser';
-import { GoogleGenAI, Type } from "@google/genai";
+import { GoogleGenerativeAI, SchemaType } from "@google/generative-ai";
+
+export const maxDuration = 60; // السماح بمهلة 60 ثانية للتحليل لأنه قد يستغرق وقتاً
 
 export async function POST(req: Request) {
   try {
@@ -25,68 +26,75 @@ export async function POST(req: Request) {
       if (content) validContents.push(content);
     }
 
-    // 3. التحليل باستخدام Gemini 3 Pro
-    const ai = new GoogleGenAI({ apiKey: process.env.API_KEY || '' });
+    if (validContents.length === 0) {
+        return NextResponse.json({ error: 'لم نتمكن من قراءة محتوى الملفات' }, { status: 400 });
+    }
 
+    // 3. إعداد الذكاء الاصطناعي
+    const apiKey = process.env.GOOGLE_API_KEY || process.env.API_KEY;
+    if (!apiKey) {
+        throw new Error("API Key is missing");
+    }
+    
+    const genAI = new GoogleGenerativeAI(apiKey);
+    
+    // إعداد الموديل مع تفعيل وضع JSON
+    const model = genAI.getGenerativeModel({
+        model: "gemini-1.5-pro",
+        generationConfig: {
+            responseMimeType: "application/json",
+            responseSchema: {
+                type: SchemaType.OBJECT,
+                properties: {
+                    summary: { type: SchemaType.STRING, description: 'ملخص عام لأداء المعلم' },
+                    suggested_scores: {
+                        type: SchemaType.OBJECT,
+                        properties: {
+                            "1": { type: SchemaType.NUMBER }, "2": { type: SchemaType.NUMBER }, "3": { type: SchemaType.NUMBER },
+                            "4": { type: SchemaType.NUMBER }, "5": { type: SchemaType.NUMBER }, "6": { type: SchemaType.NUMBER },
+                            "7": { type: SchemaType.NUMBER }, "8": { type: SchemaType.NUMBER }, "9": { type: SchemaType.NUMBER },
+                            "10": { type: SchemaType.NUMBER }, "11": { type: SchemaType.NUMBER }
+                        },
+                        required: ["1", "2", "3", "4", "5", "6", "7", "8", "9", "10", "11"]
+                    },
+                    reasons: { type: SchemaType.STRING, description: 'مبررات مفصلة للدرجات' },
+                    recommendations: { type: SchemaType.STRING, description: 'توصيات للتحسين' }
+                }
+            }
+        }
+    });
+
+    // 4. بناء البرومبت
     const promptParts: any[] = [
-      {
-        text: `أنت خبير تقييم تعليمي محترف في وزارة التعليم السعودية. مهمتك هي مراجعة شواهد المعلم المرفقة وتقييمه بناءً على 11 معياراً للأداء الوظيفي.
-        المعايير هي: (1.أداء الواجبات، 2.التفاعل مع المجتمع، 3.أولياء الأمور، 4.استراتيجيات التدريس، 5.نتائج المتعلمين، 6.خطة التعلم، 7.التقنية، 8.البيئة التعليمية، 9.الإدارة الصفية، 10.تحليل النتائج، 11.أساليب التقويم).
-        
-        لكل معيار، حدد درجة من 5 بناءً على قوة الشاهد المرفق. إذا لم تجد شاهداً لمعيار معين، امنحه 0 أو درجة منخفضة واذكر السبب.
-        يجب أن تكون الدرجات منطقية وصارمة (لا تمنح 5/5 إلا إذا كان الشاهد نموذجياً).
-        
-        الملفات المرفقة تتبع هذا النص:`
-      }
+      `أنت خبير تقييم تعليمي محترف في وزارة التعليم السعودية. مهمتك مراجعة الشواهد وتقييمها بناءً على 11 معياراً للأداء الوظيفي:
+       (1.أداء الواجبات، 2.التفاعل مع المجتمع، 3.أولياء الأمور، 4.استراتيجيات التدريس، 5.نتائج المتعلمين، 6.خطة التعلم، 7.التقنية، 8.البيئة التعليمية، 9.الإدارة الصفية، 10.تحليل النتائج، 11.أساليب التقويم).
+       
+       امنح درجة من 5 لكل معيار. إذا لم يوجد شاهد، امنح 0. كن دقيقاً وصارماً.`
     ];
 
-    // إضافة محتوى الملفات للبرومبت
+    // إضافة محتوى الملفات
     validContents.forEach(item => {
       if (item.type === 'text') {
-        promptParts.push({ text: `محتوى مستند (${item.name}):\n${item.content}\n---` });
+        promptParts.push(`\n--- ملف: ${item.name} ---\n${item.content}`);
       } else {
         promptParts.push({
-          inlineData: {
-            data: item.content,
-            mimeType: item.mimeType,
-          },
+            inlineData: {
+                data: item.content, // يجب أن يكون base64 نظيف بدون prefix
+                mimeType: item.mimeType
+            }
         });
-        promptParts.push({ text: `صورة شاهد بعنوان: ${item.name}` });
+        promptParts.push(`(صورة مرفقة: ${item.name})`);
       }
     });
 
-    const response = await ai.models.generateContent({
-      model: 'gemini-3-pro-preview', // استخدام البرو لأداء أعلى في التحليل
-      contents: [{ parts: promptParts }],
-      config: {
-        responseMimeType: 'application/json',
-        responseSchema: {
-          type: Type.OBJECT,
-          properties: {
-            summary: { type: Type.STRING, description: 'ملخص عام لأداء المعلم' },
-            suggested_scores: {
-              type: Type.OBJECT,
-              properties: {
-                "1": { type: Type.NUMBER }, "2": { type: Type.NUMBER }, "3": { type: Type.NUMBER },
-                "4": { type: Type.NUMBER }, "5": { type: Type.NUMBER }, "6": { type: Type.NUMBER },
-                "7": { type: Type.NUMBER }, "8": { type: Type.NUMBER }, "9": { type: Type.NUMBER },
-                "10": { type: Type.NUMBER }, "11": { type: Type.NUMBER }
-              },
-              description: 'الدرجات المقترحة من 5 لكل معيار'
-            },
-            reasons: { type: Type.STRING, description: 'مبررات تقنية ومهنية للدرجات الممنوحة بناء على الشواهد' },
-            recommendations: { type: Type.STRING, description: 'توصيات للتحسين المهني' }
-          },
-          required: ['summary', 'suggested_scores', 'reasons', 'recommendations']
-        }
-      }
-    });
+    // 5. الاستدعاء
+    const result = await model.generateContent(promptParts);
+    const responseText = result.response.text();
 
-    const resultText = response.text;
-    return NextResponse.json(JSON.parse(resultText || '{}'));
+    return NextResponse.json(JSON.parse(responseText));
 
   } catch (error: any) {
     console.error('API Error:', error);
-    return NextResponse.json({ error: 'حدث خطأ أثناء معالجة الطلب', details: error.message }, { status: 500 });
+    return NextResponse.json({ error: 'حدث خطأ أثناء التحليل', details: error.message }, { status: 500 });
   }
 }
