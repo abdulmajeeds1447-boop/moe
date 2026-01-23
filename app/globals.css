@@ -19,5 +19,27 @@ body {
 }
 
 @media print {
-  .no-print { display: none !important; }
+  @page {
+    size: A4;
+    margin: 0; /* إلغاء هوامش المتصفح لنتحكم بها يدوياً */
+  }
+  
+  body {
+    background: white !important;
+    -webkit-print-color-adjust: exact;
+    print-color-adjust: exact;
+  }
+
+  .no-print {
+    display: none !important;
+  }
+
+  .print-only {
+    display: block !important;
+  }
+
+  /* ضمان عدم تقسيم العناصر */
+  tr, img, .print-block {
+    page-break-inside: avoid;
+  }
 }
