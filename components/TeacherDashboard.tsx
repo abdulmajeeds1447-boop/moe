@@ -2,227 +2,218 @@
 import React, { useState, useEffect } from 'react';
 import { Profile, Submission } from '../types';
 import { supabase } from '../services/supabaseClient';
+import ReportGenerator from './ReportGenerator';
 
 interface TeacherDashboardProps { user: Profile; }
 
 const TeacherDashboard: React.FC<TeacherDashboardProps> = ({ user }) => {
   const [driveLink, setDriveLink] = useState('');
   const [subject, setSubject] = useState('');
-  const [submissions, setSubmissions] = useState<Submission[]>([]);
-  const [isSubmitting, setIsSubmitting] = useState(false);
+  const [currentSubmission, setCurrentSubmission] = useState<Submission | null>(null);
+  const [isSending, setIsSending] = useState(false);
+  const [isLoading, setIsLoading] = useState(true);
+  const [showReportGenerator, setShowReportGenerator] = useState(false);
 
-  useEffect(() => { fetchSubmissions(); }, [user.id]);
+  useEffect(() => { fetchActiveSubmission(); }, [user.id]);
 
-  const fetchSubmissions = async () => {
-    const { data, error } = await supabase
-      .from('submissions')
-      .select('*')
-      .eq('teacher_id', user.id)
-      .order('submitted_at', { ascending: false });
-    if (!error && data) setSubmissions(data as Submission[]);
-  };
+  const fetchActiveSubmission = async () => {
+    setIsLoading(true);
+    try {
+      const { data } = await supabase
+        .from('submissions')
+        .select('*')
+        .eq('teacher_id', user.id)
+        .order('submitted_at', { ascending: false })
+        .limit(1)
+        .maybeSingle();
 
-  const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
-    setIsSubmitting(true);
-    const { error } = await supabase.from('submissions').insert([{
-        teacher_id: user.id,
-        drive_link: driveLink,
-        subject: subject,
-    }]);
-    if (!error) {
-      alert('تم إدراج الرابط بنجاح');
-      setDriveLink('');
-      setSubject('');
-      fetchSubmissions();
-    } else {
-      alert('حدث خطأ أثناء الإرسال');
+      if (data) {
+        setCurrentSubmission(data as Submission);
+        setSubject(data.subject || '');
+        setDriveLink(data.drive_link || '');
+      }
+    } catch (err) {
+      console.error("Fetch error:", err);
     }
-    setIsSubmitting(false);
+    setIsLoading(false);
   };
 
-  const handleDelete = async (id: string, status: string) => {
-    if (status === 'evaluated') {
-      alert('لا يمكن حذف الرابط بعد اعتماده وتقييمه من قبل المدير.');
+  const handleSendToAdmin = async () => {
+    if (!driveLink || !driveLink.includes('drive.google.com')) {
+      alert('يرجى إدخال رابط قوقل درايف صحيح');
+      return;
+    }
+    if (!subject) {
+      alert('يرجى إدخال المادة الدراسية');
       return;
     }
 
-    if (window.confirm('هل أنت متأكد من رغبتك في حذف هذا الرابط؟')) {
-      const { error } = await supabase
-        .from('submissions')
-        .delete()
-        .eq('id', id);
+    setIsSending(true);
+    try {
+      const payload = {
+        teacher_id: user.id,
+        subject: subject,
+        drive_link: driveLink,
+        status: 'pending',
+        submitted_at: new Date().toISOString()
+      };
 
-      if (!error) {
-        setSubmissions(submissions.filter(sub => sub.id !== id));
+      let error;
+      if (currentSubmission?.id) {
+        const { error: updateError } = await supabase.from('submissions').update(payload).eq('id', currentSubmission.id);
+        error = updateError;
       } else {
-        alert('حدث خطأ أثناء محاولة الحذف');
+        const { error: insertError } = await supabase.from('submissions').insert([payload]);
+        error = insertError;
       }
+
+      if (error) throw error;
+      alert('🚀 تم إرسال الشواهد للمدير بنجاح!');
+      fetchActiveSubmission();
+    } catch (err: any) {
+      alert(`عذراً، حدث خطأ: ${err.message}`);
+    } finally {
+      setIsSending(false);
     }
   };
 
-  return (
-    <div className="max-w-4xl mx-auto space-y-8 animate-in fade-in slide-in-from-bottom-4 duration-700">
-      
-      {/* المنصة الخارجية لإعداد التقارير */}
-      <div className="no-print">
-        <div 
-          onClick={() => window.open('https://majestic-basbousa-9de5cc.netlify.app/', '_blank')}
-          className="bg-gradient-to-br from-[#009688] to-[#00737a] p-10 rounded-[2.5rem] text-white shadow-2xl hover:shadow-[#009688]/30 transition-all group cursor-pointer border border-white/20 relative overflow-hidden"
-        >
-          <div className="absolute top-0 right-0 w-64 h-64 bg-white/5 rounded-full -mr-20 -mt-20 blur-3xl group-hover:bg-white/10 transition-colors"></div>
-          
-          <div className="flex flex-col md:flex-row items-center gap-8 relative z-10">
-            <div className="w-24 h-24 bg-white/10 rounded-[2rem] flex items-center justify-center group-hover:scale-110 transition-transform shadow-inner backdrop-blur-xl border border-white/20">
-              <svg className="w-12 h-12 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14"></path>
-              </svg>
-            </div>
-            
-            <div className="flex-1 text-center md:text-right">
-              <div className="flex flex-col md:flex-row md:items-center gap-3 mb-4">
-                <h3 className="text-3xl font-black">المنصة الخارجية لإعداد التقارير</h3>
-                <span className="bg-white text-[#00737a] px-4 py-1 rounded-full text-[10px] font-black uppercase tracking-widest inline-block w-fit mx-auto md:mx-0 shadow-sm">الموقع المعتمد</span>
-              </div>
-              
-              <div className="space-y-4">
-                <p className="text-sm opacity-95 font-bold leading-relaxed">
-                  استخدم هذه المنصة لتوليد تقاريرك المهنية بشكل آلي وذكي وفق معايير الجودة التعليمية.
-                </p>
-                
-                <div className="bg-black/20 p-6 rounded-[2rem] border border-white/10 backdrop-blur-sm relative">
-                  <p className="text-xs font-black text-teal-100 mb-3 flex items-center gap-2">
-                    <svg className="w-4 h-4" fill="currentColor" viewBox="0 0 20 20">
-                      <path fillRule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7-4a1 1 0 11-2 0 1 1 0 012 0zM9 9a1 1 0 000 2v3a1 1 0 001 1h1a1 1 0 100-2v-3a1 1 0 00-1-1H9z" clipRule="evenodd"></path>
-                    </svg>
-                    آلية الاستخدام الصحيحة:
-                  </p>
-                  <ul className="text-sm space-y-3 text-white font-medium list-disc list-inside">
-                    <li>قم بتعبئة بيانات التقرير في المنصة الخارجية.</li>
-                    <li><span className="text-yellow-300 font-black">قم بطباعة التقرير كـ PDF</span> وحفظه على جهازك.</li>
-                    <li>ارفعه لمجلد <span className="underline">Google Drive</span> الخاص بك.</li>
-                    
-                    <li className="bg-white/10 p-3 rounded-xl border-r-4 border-amber-400 mt-2 block list-none animate-pulse">
-                        <span className="text-amber-300 font-black flex items-center gap-2 mb-1">
-                           <svg className="w-4 h-4" fill="currentColor" viewBox="0 0 20 20"><path fillRule="evenodd" d="M8.257 3.099c.765-1.36 2.722-1.36 3.486 0l5.58 9.92c.75 1.334-.213 2.98-1.742 2.98H4.42c-1.53 0-2.493-1.646-1.743-2.98l5.58-9.92zM11 13a1 1 0 11-2 0 1 1 0 012 0zm-1-8a1 1 0 00-1 1v3a1 1 0 002 0V6a1 1 0 00-1-1z" clipRule="evenodd"></path></svg>
-                           تنبيه تقني هام جداً:
-                        </span>
-                        <p className="text-[12px] leading-relaxed">
-                          لكي يتمكن المدير من الاطلاع على المجلد، يجب تعديل أذونات الوصول (وصول عام) وجعلها 
-                          <span className="text-amber-200 font-black mx-1 underline italic">"أي شخص لديه الرابط"</span>.
-                        </p>
-                    </li>
+  if (isLoading) return (
+    <div className="flex flex-col items-center justify-center py-20 gap-4">
+      <div className="animate-spin rounded-full h-12 w-12 border-4 border-[#009688] border-t-transparent"></div>
+      <p className="text-slate-500 font-bold">جاري التحميل...</p>
+    </div>
+  );
 
-                    <li>بعد جمع تقاريرك وفرزها داخل مجلد الاداء الوظيفي في قوقل درايف انسخ رابط المجلد وضعه في النموذج أدناه لتقديمه للمدير</li>
-                  </ul>
-                </div>
-              </div>
+  const isPending = currentSubmission?.status === 'pending';
+  const isEvaluated = currentSubmission?.status === 'evaluated';
+
+  return (
+    <div className="max-w-5xl mx-auto space-y-12 pb-20 animate-in fade-in slide-in-from-bottom-4 duration-700">
+      
+      {/* القسم العلوي: المنصة الخارجية (الكارت الأخضر) */}
+      <div className="bg-[#009688] rounded-[2.5rem] p-8 md:p-14 text-white shadow-2xl relative overflow-hidden">
+        <div className="relative z-10 flex flex-col md:flex-row items-center justify-between gap-12">
+          
+          <div className="flex-1 space-y-6">
+            <div className="inline-block px-4 py-1.5 bg-white text-[#009688] rounded-full text-[11px] font-black uppercase tracking-wider mb-2">
+              الموقع المعتمد
+            </div>
+            <h2 className="text-3xl md:text-4xl font-black leading-tight">المنصة الخارجية لإعداد التقارير</h2>
+            <p className="text-lg opacity-90 font-medium">استخدم هذه المنصة لتوليد تقاريرك المهنية بشكل آلي وذكي وفق معايير الجودة التعليمية.</p>
+            
+            <div className="space-y-4 pt-4">
+               <div className="flex items-start gap-3">
+                  <div className="w-5 h-5 bg-white/20 rounded-full flex items-center justify-center text-[10px] shrink-0 mt-1">i</div>
+                  <p className="text-sm font-bold">آلية الاستخدام الصحيحة:</p>
+               </div>
+               
+               <ul className="text-[14px] space-y-3 mr-4 list-disc opacity-95 font-medium leading-relaxed">
+                  <li>قم بتعبئة بيانات التقرير في المنصة الخارجية.</li>
+                  <li>قم <span className="text-yellow-300 font-black">بطباعة التقرير كـ PDF</span> وحفظه على جهازك.</li>
+                  <li>ارفعه لمجلد <span className="underline decoration-white/40">Google Drive</span> الخاص بك.</li>
+               </ul>
+               
+               {/* تنبيه تقني أصفر */}
+               <div className="bg-yellow-400/20 border border-yellow-400/40 p-5 rounded-3xl mt-6">
+                  <div className="flex items-center gap-2 text-yellow-300 mb-2">
+                    <span className="text-xl">⚠️</span>
+                    <p className="text-sm font-black">تنبيه تقني هام جداً:</p>
+                  </div>
+                  <p className="text-[13px] leading-relaxed text-yellow-50 font-medium">
+                    لكي يتمكن المدير من الاطلاع على المجلد، يجب تعديل أذونات الوصول (وصول عام) وجعلها <span className="underline text-yellow-300 font-black">"أي شخص لديه الرابط"</span>.
+                  </p>
+               </div>
+               
+               <div className="flex items-start gap-3 pt-4">
+                  <span className="w-2 h-2 bg-white rounded-full shrink-0 mt-2"></span>
+                  <p className="text-[13px] font-bold opacity-80 leading-relaxed">
+                    بعد جمع تقاريرك وفرزها داخل مجلد الأداء الوظيفي في قوقل درايف انسخ رابط المجلد وضعه في النموذج أدناه لتقديمه للمدير.
+                  </p>
+               </div>
             </div>
           </div>
+
+          {/* زر المنصة الخارجية الأيقوني (مربع كبير مع سهم) */}
+          <div className="flex flex-col items-center gap-4">
+            <button 
+              onClick={() => setShowReportGenerator(true)}
+              className="w-32 h-32 md:w-44 md:h-44 bg-white/10 border-2 border-white/30 rounded-[3rem] flex items-center justify-center hover:bg-white/20 transition-all group shrink-0 shadow-2xl active:scale-95"
+            >
+              <svg className="w-16 h-16 text-white group-hover:scale-110 transition-transform" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14"></path>
+              </svg>
+            </button>
+            <p className="text-xs font-black tracking-widest opacity-60 uppercase">فتح المنصة</p>
+          </div>
+
         </div>
       </div>
 
-      {/* نموذج إرسال الرابط */}
-      <div className="bg-white p-10 rounded-[3rem] shadow-sm border border-slate-200 no-print">
-        <h2 className="text-2xl font-black text-slate-800 mb-8 flex items-center gap-4">
-          <div className="w-10 h-10 bg-[#009688]/10 rounded-xl flex items-center justify-center text-[#009688]">
-            <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M13.828 10.172a4 4 0 00-5.656 0l-4 4a4 4 0 105.656 5.656l1.102-1.101m-.758-4.899a4 4 0 005.656 0l4-4a4 4 0 00-5.656-5.656l-1.1 1.1"></path></svg>
-          </div>
-          إدراج رابط الشواهد النهائي
-        </h2>
-        
-        <form onSubmit={handleSubmit} className="space-y-8">
-          <div className="grid md:grid-cols-2 gap-8">
-            <div className="space-y-3">
-              <label className="block text-sm font-bold text-slate-700 mr-2">المادة الدراسية / التخصص</label>
-              <input 
-                type="text" 
-                required
-                value={subject}
-                onChange={(e) => setSubject(e.target.value)}
-                className="w-full px-6 py-4 rounded-2xl bg-[#f8fafc] border-2 border-transparent focus:border-[#009688] focus:bg-white outline-none transition-all placeholder:text-slate-300 font-bold"
-                placeholder="مثال: لغتي - المرحلة المتوسطة"
-              />
-            </div>
-            <div className="space-y-3">
-              <label className="block text-sm font-bold text-slate-700 mr-2">رابط المجلد من Google Drive</label>
-              <input 
-                type="url" 
-                required
-                value={driveLink}
-                onChange={(e) => setDriveLink(e.target.value)}
-                className="w-full px-6 py-4 rounded-2xl bg-[#f8fafc] border-2 border-transparent focus:border-[#009688] focus:bg-white outline-none transition-all placeholder:text-slate-300 text-left font-bold"
-                placeholder="https://drive.google.com/drive/folders/..."
-              />
-            </div>
-          </div>
+      {/* القسم السفلي: إدراج الرابط (القسم الأبيض) */}
+      <div className="bg-white rounded-[3.5rem] p-12 shadow-2xl border border-slate-100 space-y-10 relative">
+        <div className="flex items-center gap-5">
+           <div className="w-14 h-14 bg-teal-50 text-[#009688] rounded-2xl flex items-center justify-center shadow-sm">
+             <svg className="w-7 h-7" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M13.828 10.172a4 4 0 00-5.656 0l-4 4a4 4 0 105.656 5.656l1.102-1.101m-.758-4.828a4 4 0 005.656 0l4-4a4 4 0 00-5.656-5.656l-1.1 1.1"></path>
+             </svg>
+           </div>
+           <h3 className="text-2xl font-black text-[#0d333f]">إدراج رابط الشواهد النهائي</h3>
+        </div>
 
-          <button 
-            type="submit"
-            disabled={isSubmitting}
-            className="w-full md:w-auto px-16 py-5 bg-[#0d333f] text-white rounded-[2rem] font-black shadow-xl shadow-[#0d333f]/10 hover:brightness-125 active:scale-[0.98] transition-all disabled:opacity-50"
-          >
-            {isSubmitting ? 'جاري الحفظ...' : 'تأكيد إرسال الشواهد للمدير'}
-          </button>
-        </form>
-      </div>
+        <div className="grid md:grid-cols-2 gap-10">
+          <div className="space-y-3">
+             <label className="text-xs font-black text-slate-500 mr-2 uppercase tracking-tight">المادة الدراسية / التخصص</label>
+             <input 
+               type="text" 
+               value={subject} 
+               onChange={e => setSubject(e.target.value)}
+               disabled={isPending}
+               placeholder="مثال: لغتي - المرحلة المتوسطة"
+               className="w-full px-8 py-5 bg-slate-50 rounded-3xl border-none outline-none focus:ring-4 focus:ring-[#009688]/10 font-bold text-slate-700 transition-all placeholder:text-slate-300 disabled:opacity-50 text-lg"
+             />
+          </div>
+          <div className="space-y-3">
+             <label className="text-xs font-black text-slate-500 mr-2 uppercase tracking-tight">رابط المجلد من Google Drive</label>
+             <input 
+               type="url" 
+               value={driveLink} 
+               onChange={e => setDriveLink(e.target.value)}
+               disabled={isPending}
+               placeholder="https://drive.google.com/drive/folders/..."
+               className="w-full px-8 py-5 bg-slate-50 rounded-3xl border-none outline-none focus:ring-4 focus:ring-[#009688]/10 text-left font-bold text-slate-700 transition-all placeholder:text-slate-300 disabled:opacity-50 text-lg"
+             />
+          </div>
+        </div>
 
-      {/* سجل الروابط */}
-      <div className="bg-white p-10 rounded-[3rem] shadow-sm border border-slate-200">
-        <h2 className="text-xl font-black text-slate-800 mb-8 flex items-center gap-3">
-           <span className="w-2 h-6 bg-amber-500 rounded-full"></span>
-           أرشيف الروابط والتقارير المقدمة
-        </h2>
-        <div className="overflow-x-auto">
-          <table className="w-full text-right">
-            <thead>
-              <tr className="border-b border-slate-100">
-                <th className="pb-6 font-black text-slate-400 text-xs uppercase tracking-widest">المادة الدراسية</th>
-                <th className="pb-6 font-black text-slate-400 text-xs text-center">تاريخ التقديم</th>
-                <th className="pb-6 font-black text-slate-400 text-xs text-center">حالة الاعتماد</th>
-                <th className="pb-6 font-black text-slate-400 text-xs text-left">الإجراء</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-slate-50">
-              {submissions.map(sub => (
-                <tr key={sub.id} className="group hover:bg-slate-50/50 transition-colors">
-                  <td className="py-6 font-bold text-slate-700">{sub.subject}</td>
-                  <td className="py-6 text-center text-slate-500 text-sm font-medium">
-                    {new Date(sub.submitted_at).toLocaleDateString('ar-SA')}
-                  </td>
-                  <td className="py-6 text-center">
-                    <span className={`px-5 py-2 rounded-xl text-[10px] font-black uppercase ${
-                      sub.status === 'evaluated' ? 'bg-green-100 text-green-700' : 'bg-amber-100 text-amber-700'
-                    }`}>
-                      {sub.status === 'evaluated' ? 'معتمد ومقيم' : 'بانتظار المراجعة'}
-                    </span>
-                  </td>
-                  <td className="py-6 text-left">
-                    <div className="flex items-center gap-2">
-                      <a href={sub.drive_link} target="_blank" className="inline-flex items-center gap-2 text-[#009688] font-black text-xs hover:bg-[#009688] hover:text-white px-4 py-2 rounded-lg border border-[#009688]/20 transition-all">
-                        عرض المجلد
-                        <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M3 7v10a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-6l-2-2H5a2 2 0 00-2 2z"></path></svg>
-                      </a>
-                      <button 
-                        onClick={() => handleDelete(sub.id, sub.status)}
-                        className={`p-2 rounded-lg transition-all ${sub.status === 'evaluated' ? 'text-slate-200 cursor-not-allowed' : 'text-red-500 hover:bg-red-50'}`}
-                        title={sub.status === 'evaluated' ? 'لا يمكن حذف المعتمد' : 'حذف الرابط'}
-                      >
-                        <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"></path>
-                        </svg>
-                      </button>
-                    </div>
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-          {submissions.length === 0 && (
-            <div className="py-20 text-center text-slate-300 font-bold italic">لا توجد سجلات سابقة</div>
+        <div className="pt-4">
+          {isPending ? (
+            <div className="bg-amber-50 border border-amber-100 p-8 rounded-[2.5rem] flex items-center justify-center gap-5 text-amber-700 font-black text-lg">
+               <span className="w-10 h-10 bg-amber-500 text-white rounded-full flex items-center justify-center animate-pulse">⏳</span>
+               ملفك قيد المراجعة حالياً من قبل مدير المدرسة
+            </div>
+          ) : isEvaluated ? (
+            <div className="bg-green-50 border border-green-100 p-8 rounded-[2.5rem] flex items-center justify-center gap-5 text-green-700 font-black text-lg">
+               <span className="w-10 h-10 bg-green-500 text-white rounded-full flex items-center justify-center">✓</span>
+               تم تقييم ملفك بنجاح، يمكنك الاطلاع على النتيجة في الإشعارات
+            </div>
+          ) : (
+            <button 
+              onClick={handleSendToAdmin}
+              disabled={isSending}
+              className="w-full md:w-auto px-20 py-6 bg-[#0d333f] text-white rounded-3xl font-black shadow-2xl hover:brightness-125 hover:-translate-y-1 active:translate-y-0 transition-all mx-auto block text-xl disabled:opacity-50"
+            >
+              {isSending ? 'جاري الإرسال...' : 'تأكيد إرسال الشواهد للمدير'}
+            </button>
           )}
         </div>
       </div>
+
+      {showReportGenerator && (
+        <ReportGenerator 
+          teacherName={user.full_name} 
+          onClose={() => setShowReportGenerator(false)} 
+        />
+      )}
     </div>
   );
 };

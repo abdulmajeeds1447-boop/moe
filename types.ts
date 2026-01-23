@@ -1,3 +1,4 @@
+
 export type UserRole = 'teacher' | 'admin';
 
 export interface Profile {
@@ -9,13 +10,20 @@ export interface Profile {
   password_plain: string;
 }
 
+export interface EvidenceFile {
+  data: string; // base64 string
+  type: string; // mime type: image/jpeg or application/pdf
+  name: string;
+}
+
 export interface Submission {
   id: string;
   teacher_id: string;
   drive_link: string;
   subject: string;
   submitted_at: string;
-  status: 'pending' | 'evaluated';
+  status: 'draft' | 'pending' | 'evaluated';
+  evidence_by_criteria?: Record<number, EvidenceFile[]>; 
   teacher?: Profile;
 }
 
