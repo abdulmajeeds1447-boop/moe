@@ -12,13 +12,21 @@ export async function POST(req: Request) {
       return NextResponse.json({ error: 'رابط المجلد مطلوب' }, { status: 400 });
     }
 
-    // تأكد من وجود API KEY
-    if (!process.env.API_KEY) {
-      console.error("Missing API_KEY environment variable");
-      return NextResponse.json({ error: 'إعدادات الذكاء الاصطناعي غير مكتملة على السيرفر' }, { status: 500 });
+    // فحص كافة المتغيرات المطلوبة قبل البدء بالعملية
+    const missingKeys = [];
+    if (!process.env.API_KEY) missingKeys.push("API_KEY");
+    if (!process.env.GOOGLE_SERVICE_ACCOUNT_EMAIL) missingKeys.push("GOOGLE_SERVICE_ACCOUNT_EMAIL");
+    if (!process.env.GOOGLE_PRIVATE_KEY) missingKeys.push("GOOGLE_PRIVATE_KEY");
+
+    if (missingKeys.length > 0) {
+      console.error("Missing credentials in environment:", missingKeys);
+      return NextResponse.json({ 
+        error: 'إعدادات السيرفر غير مكتملة', 
+        details: `يرجى إضافة المتغيرات التالية في Vercel Dashboard: ${missingKeys.join(", ")}` 
+      }, { status: 500 });
     }
 
-    // 1. جلب الملفات
+    // 1. جلب الملفات من قوقل درايف
     let driveFiles = [];
     try {
       driveFiles = await getDriveFiles(link);
@@ -27,10 +35,10 @@ export async function POST(req: Request) {
     }
 
     if (driveFiles.length === 0) {
-      return NextResponse.json({ error: 'المجلد فارغ أو لا يحتوي على ملفات مدعومة' }, { status: 404 });
+      return NextResponse.json({ error: 'المجلد فارغ أو لا يحتوي على ملفات مدعومة (PDF أو صور)' }, { status: 404 });
     }
 
-    // 2. استخراج المحتوى
+    // 2. استخراج وتحليل محتوى الملفات
     const validContents = [];
     for (const file of driveFiles) {
       try {
@@ -45,10 +53,10 @@ export async function POST(req: Request) {
       return NextResponse.json({ error: 'لم نتمكن من قراءة محتوى الملفات داخل المجلد' }, { status: 400 });
     }
 
-    // 3. التحليل
+    // 3. تحليل البيانات باستخدام ذكاء Gemini الاصطناعي
     const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
     const promptParts: any[] = [
-      { text: "أنت خبير تقييم تعليمي محترف. قيم المعلم بناءً على الشواهد المرفقة لـ 11 معياراً. الدرجة من 5 لكل معيار." }
+      { text: "أنت خبير تقييم أداء تعليمي محترف. حلل الشواهد المرفقة وقيم المعلم بناءً على معايير الأداء الـ 11. الدرجة من 5 لكل معيار. أجب بصيغة JSON فقط." }
     ];
 
     validContents.forEach(item => {
@@ -85,13 +93,15 @@ export async function POST(req: Request) {
       }
     });
 
-    const result = JSON.parse(response.text || '{}');
+    if (!response.text) throw new Error("استجابة فارغة من محرك الذكاء الاصطناعي");
+
+    const result = JSON.parse(response.text);
     return NextResponse.json(result);
 
   } catch (error: any) {
-    console.error('API Runtime Error:', error);
+    console.error('API Error:', error);
     return NextResponse.json({ 
-      error: 'فشل النظام في معالجة الطلب', 
+      error: 'فشل في معالجة طلب التحليل', 
       details: error.message 
     }, { status: 500 });
   }
