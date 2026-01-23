@@ -7,12 +7,19 @@ export const analyzeTeacherReport = async (driveLink: string) => {
       body: JSON.stringify({ link: driveLink }),
     });
 
-    if (!response.ok) {
-      const errorData = await response.json();
-      throw new Error(errorData.error || 'فشل التحليل');
+    // تحقق من نوع المحتوى قبل المحاولة
+    const contentType = response.headers.get("content-type");
+    if (!contentType || !contentType.includes("application/json")) {
+      const text = await response.text();
+      console.error("Server returned non-JSON response:", text);
+      throw new Error("حدث خطأ في السيرفر (استجابة غير صالحة). تأكد من إعدادات Vercel ومسار الـ API.");
     }
 
     const result = await response.json();
+
+    if (!response.ok) {
+      throw new Error(result.error || result.details || 'فشل التحليل');
+    }
     
     // توحيد تنسيق الدرجات كأرقام
     if (result.suggested_scores) {

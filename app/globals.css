@@ -1,13 +1,23 @@
+
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
 
 :root {
-  --foreground-rgb: 0, 0, 0;
-  --background-start-rgb: 214, 219, 220;
-  --background-end-rgb: 255, 255, 255;
+  --moe-teal: #009688;
+  --moe-navy: #0d333f;
 }
 
 body {
-  direction: rtl;
+  font-family: 'Tajawal', sans-serif;
+}
+
+@layer components {
+  .moe-gradient {
+    @apply bg-gradient-to-br from-[#00737a] to-[#009688];
+  }
+}
+
+@media print {
+  .no-print { display: none !important; }
 }
