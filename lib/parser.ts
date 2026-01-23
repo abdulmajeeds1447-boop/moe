@@ -1,7 +1,6 @@
 
 import pdf from 'pdf-parse';
 
-// وظيفة ترميز البيانات لـ Base64 يدوياً حسب متطلبات GenAI
 function encodeToBase64(bytes: Uint8Array) {
   let binary = '';
   const len = bytes.byteLength;
@@ -18,25 +17,26 @@ interface ProcessedContent {
   mimeType?: string;
 }
 
-/**
- * تحويل ملفات الـ Buffer إلى بيانات قابلة للقراءة من قبل الذكاء الاصطناعي
- */
 export async function parseFileContent(file: { name: string; mimeType: string; buffer: Uint8Array }): Promise<ProcessedContent | null> {
   try {
     if (file.mimeType === 'application/pdf') {
-      // استخراج النص من ملفات PDF (استخدام any لتجنب مشاكل تعريفات ESM)
-      const data = await (pdf as any)(file.buffer);
+      const nodeBuffer = Buffer.from(file.buffer);
+      const data = await (pdf as any)(nodeBuffer);
+      
+      // تحسين الأداء: تقليص النص لتقليل عبء معالجة الذكاء الاصطناعي
+      const textContent = data.text.length > 15000 
+        ? data.text.substring(0, 15000) + "... [تم تقليص النص لطوله الزائد]" 
+        : data.text;
+
       return {
         type: 'text',
-        content: data.text,
+        content: textContent,
         name: file.name
       };
     } else if (file.mimeType.startsWith('image/')) {
-      // تحويل الصور إلى Base64
-      const base64 = encodeToBase64(file.buffer);
       return {
         type: 'image',
-        content: base64,
+        content: encodeToBase64(file.buffer),
         mimeType: file.mimeType,
         name: file.name
       };

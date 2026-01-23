@@ -12,58 +12,58 @@ export async function POST(req: Request) {
       return NextResponse.json({ error: 'رابط المجلد مطلوب' }, { status: 400 });
     }
 
-    // 1. جلب الملفات من Google Drive
+    // 1. جلب الملفات من قوقل درايف
     const driveFiles = await getDriveFiles(link);
     if (driveFiles.length === 0) {
-      return NextResponse.json({ error: 'المجلد فارغ أو لا يحتوي على ملفات مدعومة (PDF/Images)' }, { status: 404 });
+      return NextResponse.json({ error: 'المجلد فارغ أو لا يحتوي على ملفات مدعومة (PDF أو صور)' }, { status: 404 });
     }
 
-    // 2. معالجة محتوى الملفات
-    const parsedContents = await Promise.all(
-      driveFiles.map(file => parseFileContent(file))
-    );
+    // 2. استخراج محتوى الملفات (نصوص أو صور Base64)
+    const validContents = [];
+    for (const file of driveFiles) {
+      const content = await parseFileContent(file);
+      if (content) validContents.push(content);
+    }
 
-    const validContents = parsedContents.filter((c): c is NonNullable<typeof c> => c !== null);
-
-    // 3. تهيئة Gemini AI
+    // 3. التحليل باستخدام Gemini 3 Pro
     const ai = new GoogleGenAI({ apiKey: process.env.API_KEY || '' });
 
-    // إعداد التعليمات والبيانات للنموذج
     const promptParts: any[] = [
       {
-        text: `أنت مساعد لمدير مدرسة. دورك تقييم المعلم بناءً على الشواهد النصية والمرفقة ومقارنتها ببطاقة الأداء الوظيفي المكونة من 11 عنصر:
-        1. أداء الواجبات الوظيفية 2. التفاعل مع المجتمع 3. التفاعل مع أولياء الأمور 4. تنويع الاستراتيجيات 5. تحسين النتائج 6. خطة التعلم 7. توظيف التقنية 8. البيئة التعليمية 9. الإدارة الصفية 10. تحليل النتائج 11. أساليب التقويم.
+        text: `أنت خبير تقييم تعليمي محترف في وزارة التعليم السعودية. مهمتك هي مراجعة شواهد المعلم المرفقة وتقييمه بناءً على 11 معياراً للأداء الوظيفي.
+        المعايير هي: (1.أداء الواجبات، 2.التفاعل مع المجتمع، 3.أولياء الأمور، 4.استراتيجيات التدريس، 5.نتائج المتعلمين، 6.خطة التعلم، 7.التقنية، 8.البيئة التعليمية، 9.الإدارة الصفية، 10.تحليل النتائج، 11.أساليب التقويم).
         
-        القاعدة: لا تعطِ الدرجة الكاملة (5 من 5) إلا بوجود دليل نصي أو مرئي واضح وصريح في الملفات المرفقة. في حال غياب الدليل، أعطِ درجة تقديرية منخفضة ووضح ذلك في المبررات.
+        لكل معيار، حدد درجة من 5 بناءً على قوة الشاهد المرفق. إذا لم تجد شاهداً لمعيار معين، امنحه 0 أو درجة منخفضة واذكر السبب.
+        يجب أن تكون الدرجات منطقية وصارمة (لا تمنح 5/5 إلا إذا كان الشاهد نموذجياً).
         
-        يجب أن تكون المخرجات بتنسيق JSON حصراً يحتوي على الحقول: summary, suggested_scores, recommendations, reasons.`
+        الملفات المرفقة تتبع هذا النص:`
       }
     ];
 
-    // إضافة المحتوى المستخرج
+    // إضافة محتوى الملفات للبرومبت
     validContents.forEach(item => {
       if (item.type === 'text') {
-        promptParts.push({ text: `محتوى من ملف (${item.name}):\n${item.content}\n---` });
-      } else if (item.type === 'image') {
+        promptParts.push({ text: `محتوى مستند (${item.name}):\n${item.content}\n---` });
+      } else {
         promptParts.push({
           inlineData: {
             data: item.content,
-            mimeType: item.mimeType
-          }
+            mimeType: item.mimeType,
+          },
         });
+        promptParts.push({ text: `صورة شاهد بعنوان: ${item.name}` });
       }
     });
 
-    // 4. طلب التحليل من Gemini 3 Flash
     const response = await ai.models.generateContent({
-      model: 'gemini-3-flash-preview',
+      model: 'gemini-3-pro-preview', // استخدام البرو لأداء أعلى في التحليل
       contents: [{ parts: promptParts }],
       config: {
         responseMimeType: 'application/json',
         responseSchema: {
           type: Type.OBJECT,
           properties: {
-            summary: { type: Type.STRING },
+            summary: { type: Type.STRING, description: 'ملخص عام لأداء المعلم' },
             suggested_scores: {
               type: Type.OBJECT,
               properties: {
@@ -71,20 +71,22 @@ export async function POST(req: Request) {
                 "4": { type: Type.NUMBER }, "5": { type: Type.NUMBER }, "6": { type: Type.NUMBER },
                 "7": { type: Type.NUMBER }, "8": { type: Type.NUMBER }, "9": { type: Type.NUMBER },
                 "10": { type: Type.NUMBER }, "11": { type: Type.NUMBER }
-              }
+              },
+              description: 'الدرجات المقترحة من 5 لكل معيار'
             },
-            recommendations: { type: Type.STRING },
-            reasons: { type: Type.STRING }
+            reasons: { type: Type.STRING, description: 'مبررات تقنية ومهنية للدرجات الممنوحة بناء على الشواهد' },
+            recommendations: { type: Type.STRING, description: 'توصيات للتحسين المهني' }
           },
-          required: ['summary', 'suggested_scores', 'recommendations', 'reasons']
+          required: ['summary', 'suggested_scores', 'reasons', 'recommendations']
         }
       }
     });
 
-    return NextResponse.json(JSON.parse(response.text || '{}'));
+    const resultText = response.text;
+    return NextResponse.json(JSON.parse(resultText || '{}'));
 
   } catch (error: any) {
     console.error('API Error:', error);
-    return NextResponse.json({ error: 'حدث خطأ أثناء معالجة الملفات أو تحليلها', details: error.message }, { status: 500 });
+    return NextResponse.json({ error: 'حدث خطأ أثناء معالجة الطلب', details: error.message }, { status: 500 });
   }
 }

@@ -24,7 +24,7 @@ export async function getDriveFiles(folderUrl: string) {
 
     const files = response.data.files || [];
     
-    // تحسين: تحميل جميع الملفات بالتوازي لزيادة السرعة
+    // تحسين السرعة: تحميل جميع الملفات بالتوازي بدلاً من التحميل المتسلسل
     const downloadPromises = files.map(async (file) => {
       if (!file.id) return null;
       try {
@@ -49,7 +49,7 @@ export async function getDriveFiles(folderUrl: string) {
 
   } catch (error: any) {
     console.error('Google Drive Error:', error.message);
-    throw new Error('فشل الوصول إلى ملفات Google Drive. تأكد من مشاركة المجلد بشكل صحيح.');
+    throw new Error('فشل الوصول إلى ملفات Google Drive. تأكد من مشاركة المجلد بشكل صحيح (أي شخص لديه الرابط).');
   }
 }
 
