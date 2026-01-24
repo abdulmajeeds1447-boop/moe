@@ -48,11 +48,11 @@ const EvaluationModal: React.FC<EvaluationModalProps> = ({ submission, onClose, 
   };
 
   const getGradeInfo = (t: number) => {
-    if (t >= 90) return { label: 'ممتاز / رائد', value: 5, color: 'text-emerald-200' };
-    if (t >= 80) return { label: 'جيد جداً / قوي', value: 4, color: 'text-blue-200' };
-    if (t >= 70) return { label: 'جيد', value: 3, color: 'text-cyan-200' };
-    if (t >= 60) return { label: 'مرضي / مقبول', value: 2, color: 'text-amber-200' };
-    return { label: 'غير مرضي / ضعيف', value: 1, color: 'text-red-200' };
+    if (t >= 90) return { label: 'ممتاز / رائد', value: 5, color: 'text-emerald-600', printColor: 'black' };
+    if (t >= 80) return { label: 'جيد جداً / قوي', value: 4, color: 'text-blue-600', printColor: 'black' };
+    if (t >= 70) return { label: 'جيد', value: 3, color: 'text-cyan-600', printColor: 'black' };
+    if (t >= 60) return { label: 'مرضي / مقبول', value: 2, color: 'text-amber-600', printColor: 'black' };
+    return { label: 'غير مرضي / ضعيف', value: 1, color: 'text-red-600', printColor: 'black' };
   };
 
   const totalScore = calculateTotal();
@@ -113,127 +113,155 @@ const EvaluationModal: React.FC<EvaluationModalProps> = ({ submission, onClose, 
   const sendWhatsApp = () => {
     const teacherName = submission.teacher?.full_name || 'الزميل المعلم';
     const cleanJustification = (justification || '').replace(/\*\*/g, '').replace(/\*/g, '-');
-    const message = `*تقرير الأداء الوظيفي* 📄%0A%0A` +
+    const message = `*نتيجة الأداء الوظيفي* 📄%0A%0A` +
       `*المعلم:* ${teacherName}%0A` +
-      `*النتيجة النهائية:* ${totalScore}%%0A` +
-      `*المعدل:* ${gradeInfo.value} من 5%0A` +
-      `*التقدير:* ${gradeInfo.label}%0A%0A` +
-      `*أبرز الملحوظات:*%0A${cleanJustification}%0A%0A` +
-      `مدير المدرسة: نايف أحمد الشهري`;
+      `*الدرجة النهائية:* ${totalScore}% (${gradeInfo.label})%0A` +
+      `*المعدل:* ${gradeInfo.value} من 5%0A%0A` +
+      `*ملحوظات المدير:*%0A${cleanJustification}%0A%0A` +
+      `إدارة المدرسة`;
     window.open(`https://wa.me/?text=${message}`, '_blank');
   };
 
   return (
     <div className="fixed inset-0 z-[200] flex items-center justify-center p-4 bg-slate-900/95 backdrop-blur-lg overflow-y-auto">
       
-      {/* ستايل الطباعة القسري لصفحة واحدة */}
+      {/* --- ستايل الطباعة الاحترافي --- */}
       <style type="text/css" media="print">
         {`
           @page { size: A4; margin: 0; }
-          body { margin: 0; padding: 0; visibility: hidden; }
-          /* إخفاء كل شيء وجعل ارتفاعه صفر لمنع الصفحات الفارغة */
-          body > * { display: none; }
+          body { margin: 0; padding: 0; background: white; -webkit-print-color-adjust: exact; }
           
-          /* إظهار محتوى الطباعة فقط وتثبيته */
-          .print-content { 
+          /* إخفاء كل شيء ما عدا ورقة الطباعة */
+          body > *:not(.print-container) { display: none !important; }
+          
+          /* حاوية الطباعة */
+          .print-container { 
             display: flex !important;
-            visibility: visible !important;
-            position: fixed;
-            left: 0;
-            top: 0;
+            flex-direction: column;
             width: 210mm;
-            height: 296mm; /* أقل بمليمتر واحد لتجنب الصفحة الثانية */
-            z-index: 9999;
+            height: 297mm;
             background: white;
-            margin: 0;
-            padding: 0;
+            position: absolute;
+            top: 0;
+            left: 0;
+            padding: 15mm; /* هوامش داخلية نظيفة */
+            box-sizing: border-box;
+            z-index: 9999;
           }
-          .print-content * { visibility: visible; }
+
+          /* تحسينات النصوص والحدود */
+          .print-header { border-bottom: 2px solid #000; padding-bottom: 10px; margin-bottom: 20px; }
+          .print-table th { background-color: #f0f0f0 !important; color: black !important; border: 1px solid #000 !important; font-weight: 900 !important; }
+          .print-table td { border: 1px solid #000 !important; color: black !important; }
+          .print-box { border: 1px solid #000; border-radius: 8px; padding: 10px; margin-bottom: 15px; }
+          .print-grade-box { border: 2px solid #000; background: #fafafa !important; }
         `}
       </style>
 
-      {/* --- قسم الطباعة (A4) --- */}
-      <div className="print-content hidden print:flex flex-col w-[210mm] h-[296mm] bg-white p-[12mm] text-black font-['Tajawal'] overflow-hidden border relative">
+      {/* --- محتوى الطباعة (يظهر فقط عند الطباعة) --- */}
+      <div className="print-container hidden font-['Tajawal'] text-black">
         
-        {/* الترويسة */}
-        <div className="flex justify-between items-center border-b-2 border-moe-navy pb-3 mb-4 shrink-0">
-          <div className="text-[9px] font-bold space-y-0.5">
+        {/* الترويسة الرسمية */}
+        <div className="print-header flex justify-between items-center">
+          <div className="text-[10px] font-bold text-center leading-relaxed">
             <p>المملكة العربية السعودية</p>
             <p>وزارة التعليم</p>
+            <p>الإدارة العامة للتعليم</p>
             <p>ثانوية الأمير عبدالمجيد الأولى</p>
           </div>
           <div className="text-center">
-             <img src="https://up6.cc/2026/01/176840436497671.png" className="h-12 object-contain mb-1 mx-auto" alt="Logo" />
-             <h2 className="text-[11px] font-black text-moe-navy">بطاقة الأداء الوظيفي الرقمي</h2>
+             <img src="https://up6.cc/2026/01/176840436497671.png" className="h-16 object-contain mb-1 mx-auto grayscale" alt="Logo" />
+             <h1 className="text-lg font-black mt-2 border-2 border-black px-4 py-1 rounded-lg">بطاقة الأداء الوظيفي</h1>
           </div>
-          <div className="text-[9px] font-bold text-left space-y-0.5">
+          <div className="text-[10px] font-bold text-left leading-relaxed">
             <p>التاريخ: {new Date().toLocaleDateString('ar-SA')}</p>
             <p>العام الدراسي: 1446هـ</p>
+            <p>الرقم المرجعي: {submission.id.slice(0, 8)}</p>
           </div>
         </div>
 
-        {/* بيانات المعلم */}
-        <div className="grid grid-cols-3 gap-2 bg-slate-50 p-2 rounded-lg mb-4 border border-slate-100 text-[9px] shrink-0">
-          <p><strong>الاسم:</strong> {submission.teacher?.full_name}</p>
-          <p><strong>المادة:</strong> {submission.subject}</p>
-          <p><strong>الدرجة:</strong> <span className="font-black">{totalScore}/100 ({gradeInfo.label})</span></p>
+        {/* بيانات المعلم والدرجة النهائية */}
+        <div className="flex gap-4 mb-6">
+          <div className="flex-1 print-box">
+             <table className="w-full text-[10px]">
+               <tbody>
+                 <tr><td className="py-1 font-bold w-20">اسم المعلم:</td><td>{submission.teacher?.full_name}</td></tr>
+                 <tr><td className="py-1 font-bold">المادة:</td><td>{submission.subject}</td></tr>
+                 <tr><td className="py-1 font-bold">المقيم:</td><td>مدير المدرسة (نايف الشهري)</td></tr>
+               </tbody>
+             </table>
+          </div>
+          <div className="w-40 print-grade-box flex flex-col items-center justify-center rounded-lg">
+             <p className="text-[9px] font-bold mb-1">الدرجة المستحقة</p>
+             <h2 className="text-3xl font-black">{totalScore}</h2>
+             <p className="text-[10px] font-bold mt-1">{gradeInfo.label}</p>
+          </div>
         </div>
 
-        {/* جدول الدرجات المطبوع */}
-        <div className="mb-4 shrink-0">
-          <table className="w-full border-collapse border border-slate-400 text-[8.5px]">
+        {/* الجدول التفصيلي */}
+        <div className="mb-6 flex-1">
+          <table className="print-table w-full border-collapse text-[9px] text-center">
             <thead>
-              <tr className="bg-slate-100 font-black">
-                <th className="border border-slate-400 p-1 text-right">المعيار</th>
-                <th className="border border-slate-400 p-1 text-center w-14">الوزن</th>
-                <th className="border border-slate-400 p-1 text-center w-20">المستحق</th>
+              <tr className="h-8">
+                <th className="w-10">م</th>
+                <th className="text-right px-2">معيار التقييم</th>
+                <th className="w-16">الوزن</th>
+                <th className="w-20">الدرجة</th>
               </tr>
             </thead>
             <tbody>
-              {EVALUATION_CRITERIA.map(c => {
+              {EVALUATION_CRITERIA.map((c, idx) => {
                 const rawScore = Number(scores[c.id] || 0);
                 const weightedScore = (rawScore / 5) * c.weight;
                 return (
-                  <tr key={c.id}>
-                    <td className="border border-slate-400 p-0.5 px-1.5 font-bold">{c.label}</td>
-                    <td className="border border-slate-400 p-0.5 text-center">{c.weight}</td>
-                    <td className="border border-slate-400 p-0.5 text-center font-black">
+                  <tr key={c.id} className="h-7">
+                    <td className="font-bold">{idx + 1}</td>
+                    <td className="text-right px-2 font-semibold">{c.label}</td>
+                    <td>{c.weight}</td>
+                    <td className="font-black bg-slate-50">
                        {Number.isInteger(weightedScore) ? weightedScore : weightedScore.toFixed(1)}
                     </td>
                   </tr>
                 );
               })}
-              <tr className="bg-moe-navy text-white font-black">
-                <td className="border border-moe-navy p-1.5 text-[10px]" colSpan={2}>المجموع النهائي</td>
-                <td className="border border-moe-navy p-1.5 text-center text-[14px]">{totalScore}</td>
+              <tr className="bg-slate-100 font-black h-8 border-t-2 border-black">
+                <td colSpan={2} className="text-right px-2">المجموع الكلي</td>
+                <td>100</td>
+                <td className="text-[12px]">{totalScore}</td>
               </tr>
             </tbody>
           </table>
         </div>
 
-        {/* التبريرات - يتم قص النص الزائد لضمان عدم تجاوز الصفحة */}
-        <div className="flex-1 overflow-hidden flex flex-col min-h-0">
-           <h3 className="font-black text-[10px] text-moe-navy mb-1 underline shrink-0">رأي الخبير التربوي:</h3>
-           <div className="flex-1 border p-2 relative overflow-hidden">
-             <div className="absolute inset-0 p-2 text-[9px] leading-relaxed text-slate-700 italic text-justify whitespace-pre-wrap overflow-hidden">
-               {justification}
-             </div>
-           </div>
+        {/* التبريرات والملاحظات */}
+        <div className="print-box h-32 relative mb-6">
+           <h3 className="font-black text-[10px] border-b border-black inline-block mb-2">رأي الخبير التربوي وملاحظات التحسين:</h3>
+           <p className="text-[9px] leading-relaxed text-justify whitespace-pre-wrap">
+             {justification || 'لا توجد ملاحظات إضافية.'}
+           </p>
         </div>
 
         {/* التواقيع */}
-        <div className="mt-4 pt-4 flex justify-between items-end text-center shrink-0">
-          <div className="w-48 border-t border-dotted border-black pt-2">
-            <p className="font-black text-[9px]">توقيع المعلم</p>
+        <div className="flex justify-between items-end mt-auto px-8 pb-4">
+          <div className="text-center w-40">
+            <p className="font-bold text-[10px] mb-8">توقيع المعلم/ة</p>
+            <div className="border-t border-dotted border-black pt-1">
+              <p className="text-[9px]">{submission.teacher?.full_name}</p>
+            </div>
           </div>
-          <div className="w-48 border-t border-dotted border-black pt-2">
-            <p className="font-black text-[9px]">مدير المدرسة: نايف الشهري</p>
+          <div className="text-center w-40">
+            <p className="font-bold text-[10px] mb-8">اعتماد مدير المدرسة</p>
+            <div className="border-t border-dotted border-black pt-1">
+              <p className="font-black text-[10px]">نايف أحمد الشهري</p>
+              <img src="https://up6.cc/2026/01/173772666879811.png" className="w-20 h-10 object-contain mx-auto opacity-50 absolute -mt-10 mr-10" alt="ختم" /> 
+            </div>
           </div>
         </div>
+
       </div>
 
       {/* --- الواجهة التفاعلية (Modal) --- */}
-      {/* كلاس print:hidden مهم جداً هنا لمنع طباعة الخلفية والأزرار */}
+      {/* هام: كلاس print:hidden يخفي هذا القسم تماماً عند الطباعة */}
       <div className="print:hidden bg-white w-full max-w-6xl rounded-[3rem] shadow-2xl flex flex-col max-h-[96vh] overflow-hidden">
         {/* رأس النافذة */}
         <div className="p-6 bg-moe-navy text-white flex justify-between items-center shrink-0">
@@ -299,7 +327,8 @@ const EvaluationModal: React.FC<EvaluationModalProps> = ({ submission, onClose, 
                 </div>
               ) : (
                 <div className="grid grid-cols-2 gap-4">
-                  {/* زر عرض المجلد (للجميع) */}
+                  
+                  {/* زر المجلد (يظهر للجميع) */}
                   <a 
                     href={submission.drive_link} 
                     target="_blank" 
@@ -332,7 +361,7 @@ const EvaluationModal: React.FC<EvaluationModalProps> = ({ submission, onClose, 
                     onClick={handlePrint} 
                     className="col-span-2 py-5 bg-slate-100 text-moe-navy border-2 border-slate-200 rounded-2xl font-black transition-all hover:bg-white active:scale-95 flex items-center justify-center gap-2"
                   >
-                    📄 طباعة التقرير
+                    📄 طباعة التقرير (A4)
                   </button>
                 </div>
               )}
