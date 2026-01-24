@@ -39,8 +39,12 @@ const EvaluationModal: React.FC<EvaluationModalProps> = ({ submission, onClose, 
 
   const calculateTotal = () => {
     let total = 0;
-    EVALUATION_CRITERIA.forEach(c => { total += (scores[c.id] || 0) * (c.weight / 5); });
-    return Math.round(total);
+    EVALUATION_CRITERIA.forEach(c => { 
+      const score = Number(scores[c.id] || 0);
+      const weight = Number(c.weight);
+      total += score * (weight / 5); 
+    });
+    return Math.min(100, Math.round(total)); // ضمان عدم تجاوز 100%
   };
 
   const getGrade = (t: number) => {
@@ -57,7 +61,7 @@ const EvaluationModal: React.FC<EvaluationModalProps> = ({ submission, onClose, 
   const runAIAnalysis = async () => {
     if (isViewOnly) return;
     setIsAnalyzing(true);
-    setAnalysisStatus('جاري تحليل الأدلة بمساعدة الخبير التربوي...');
+    setAnalysisStatus('جاري تحليل الشواهد بدقة تربوية صارمة...');
     
     try {
       const data = await analyzeTeacherReport(submission.drive_link);
@@ -66,7 +70,10 @@ const EvaluationModal: React.FC<EvaluationModalProps> = ({ submission, onClose, 
         if (data.suggested_scores) {
           const newScores = { ...scores };
           Object.entries(data.suggested_scores).forEach(([k, v]) => {
-            newScores[Number(k)] = Number(v);
+            const numKey = Number(k);
+            if (numKey >= 1 && numKey <= 11) {
+              newScores[numKey] = Number(v);
+            }
           });
           setScores(newScores);
         }
@@ -95,7 +102,7 @@ const EvaluationModal: React.FC<EvaluationModalProps> = ({ submission, onClose, 
       
       if (error) throw error;
       await supabase.from('submissions').update({ status: 'evaluated' }).eq('id', submission.id);
-      alert('✅ تم اعتماد تقييم الأستاذ نايف أحمد الشهري بنجاح');
+      alert('✅ تم اعتماد تقييم الأداء بنجاح');
     } catch (err) { alert('خطأ في حفظ البيانات'); } finally { setIsSaving(false); }
   };
 
@@ -104,10 +111,8 @@ const EvaluationModal: React.FC<EvaluationModalProps> = ({ submission, onClose, 
   return (
     <div className="fixed inset-0 z-[200] flex items-center justify-center p-4 bg-slate-900/95 backdrop-blur-lg overflow-y-auto">
       
-      {/* التقرير المطبوع - صفحة A4 واحدة إجبارية */}
+      {/* التقرير المطبوع */}
       <div className="hidden print:flex flex-col w-[210mm] h-[297mm] bg-white p-[12mm] text-black font-['Tajawal'] overflow-hidden border">
-        
-        {/* الترويسة الرسمية */}
         <div className="flex justify-between items-center border-b-2 border-moe-navy pb-3 mb-4 shrink-0">
           <div className="text-[9px] font-bold space-y-0.5">
             <p>المملكة العربية السعودية</p>
@@ -124,14 +129,12 @@ const EvaluationModal: React.FC<EvaluationModalProps> = ({ submission, onClose, 
           </div>
         </div>
 
-        {/* بيانات المعلم */}
         <div className="grid grid-cols-3 gap-2 bg-slate-50 p-2 rounded-lg mb-4 border border-slate-100 text-[9px] shrink-0">
           <p><strong>اسم المعلم/ة:</strong> {submission.teacher?.full_name}</p>
           <p><strong>المادة / التخصص:</strong> {submission.subject}</p>
           <p><strong>الدرجة النهائية:</strong> <span className="font-black">{totalScore}/100 ({currentGrade})</span></p>
         </div>
 
-        {/* جدول التقييم المدمج */}
         <div className="mb-4 shrink-0">
           <table className="w-full border-collapse border border-slate-400 text-[8.5px]">
             <thead>
@@ -146,7 +149,7 @@ const EvaluationModal: React.FC<EvaluationModalProps> = ({ submission, onClose, 
                 <tr key={c.id}>
                   <td className="border border-slate-400 p-0.5 px-1.5 font-bold">{c.label}</td>
                   <td className="border border-slate-400 p-0.5 text-center">{c.weight}</td>
-                  <td className="border border-slate-400 p-0.5 text-center font-black">{(scores[c.id] || 0) * (c.weight / 5)}</td>
+                  <td className="border border-slate-400 p-0.5 text-center font-black">{Number(scores[c.id] || 0) * (c.weight / 5)}</td>
                 </tr>
               ))}
               <tr className="bg-moe-navy text-white font-black">
@@ -157,35 +160,28 @@ const EvaluationModal: React.FC<EvaluationModalProps> = ({ submission, onClose, 
           </table>
         </div>
 
-        {/* التبريرات (مساحة متغيرة لكن ضمن الصفحة) */}
         <div className="flex-1 overflow-hidden">
           <div className="border-r-2 border-moe-teal pr-4 h-full">
             <h3 className="font-black text-[10px] text-moe-navy mb-1 underline">تحليل الخبير التربوي للملف الرقمي:</h3>
-            <p className="text-[9px] leading-relaxed text-slate-700 italic text-justify line-clamp-[12]">
+            <p className="text-[9px] leading-relaxed text-slate-700 italic text-justify whitespace-pre-wrap">
               {justification || 'تم رصد الدرجات بناءً على الشواهد والأدلة الرقمية المرفوعة، مع التحقق من معايير وزارة التعليم السعودية والمهام الوظيفية الموكلة للمعلم.'}
             </p>
           </div>
         </div>
 
-        {/* التواقيع في قاع الصفحة إجبارياً */}
         <div className="mt-auto pt-6 flex justify-between items-end text-center shrink-0">
-          <div className="w-48">
+          <div className="w-48 border-t border-dotted border-black pt-4">
             <p className="font-black text-[9px] mb-8">توقيع المعلم</p>
-            <div className="border-t border-dotted border-black pt-1">
-              <p className="text-[8.5px]">{submission.teacher?.full_name}</p>
-            </div>
+            <p className="text-[8.5px]">{submission.teacher?.full_name}</p>
           </div>
-          <div className="w-48">
+          <div className="w-48 border-t border-dotted border-black pt-4">
             <p className="font-black text-[9px] mb-8">يعتمد مدير المدرسة</p>
-            <div className="border-t border-dotted border-black pt-1">
-              <p className="font-black text-[9px]">نايف أحمد الشهري</p>
-              <p className="text-[6px] text-slate-400 mt-0.5">ختم رسمي إلكتروني معتمد</p>
-            </div>
+            <p className="font-black text-[9px]">نايف أحمد الشهري</p>
           </div>
         </div>
       </div>
 
-      {/* واجهة العرض التفاعلية (Modal) */}
+      {/* واجهة العرض التفاعلية */}
       <div className="bg-white w-full max-w-6xl rounded-[3rem] shadow-2xl flex flex-col max-h-[96vh] overflow-hidden no-print">
         <div className="p-6 bg-moe-navy text-white flex justify-between items-center shrink-0">
           <div className="flex items-center gap-4">
@@ -250,20 +246,16 @@ const EvaluationModal: React.FC<EvaluationModalProps> = ({ submission, onClose, 
                     </>
                   )}
                   <button onClick={handlePrint} className={`py-5 bg-slate-100 text-moe-navy border-2 border-slate-200 rounded-2xl font-black transition-all ${isViewOnly ? 'col-span-2' : ''} hover:bg-white`}>
-                    📄 طباعة التقرير (A4 واحدة فقط)
+                    📄 طباعة التقرير الرسمي
                   </button>
                 </div>
               )}
 
               <div className="bg-white p-6 rounded-[2rem] border border-slate-100 shadow-sm">
                 <h4 className="text-[11px] font-black text-slate-400 mb-4 uppercase">تبريرات التقييم (بناءً على الشواهد):</h4>
-                <textarea 
-                  readOnly={isViewOnly}
-                  value={justification} 
-                  onChange={e=>setJustification(e.target.value)} 
-                  className="w-full h-40 text-xs font-bold border-none resize-none leading-relaxed bg-transparent focus:ring-0" 
-                  placeholder="سيقوم الذكاء الاصطناعي برصد المبررات هنا..." 
-                />
+                <div className="w-full h-48 text-xs font-bold leading-relaxed bg-slate-50/50 p-4 rounded-xl overflow-y-auto whitespace-pre-wrap text-slate-700">
+                  {justification || 'سيقوم الخبير التربوي بكتابة التبريرات هنا بعد التحليل...'}
+                </div>
               </div>
             </div>
           </div>
