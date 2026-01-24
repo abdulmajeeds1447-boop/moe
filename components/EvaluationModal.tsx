@@ -48,11 +48,11 @@ const EvaluationModal: React.FC<EvaluationModalProps> = ({ submission, onClose, 
 
   // --- تحديث دالة التقدير حسب القواعد الجديدة ---
   const getGradeInfo = (t: number) => {
-    if (t >= 90) return { label: 'ممتاز / رائد', value: 5, color: 'text-emerald-200' };
-    if (t >= 80) return { label: 'جيد جداً / قوي', value: 4, color: 'text-blue-200' };
+    if (t >= 90) return { label: 'ممتاز', value: 5, color: 'text-emerald-200' };
+    if (t >= 80) return { label: 'جيد جداً', value: 4, color: 'text-blue-200' };
     if (t >= 70) return { label: 'جيد', value: 3, color: 'text-cyan-200' };
-    if (t >= 60) return { label: 'مرضي / مقبول', value: 2, color: 'text-amber-200' };
-    return { label: 'غير مرضي / ضعيف', value: 1, color: 'text-red-200' };
+    if (t >= 60) return { label: 'مرضي', value: 2, color: 'text-amber-200' };
+    return { label: 'غير مرضي', value: 1, color: 'text-red-200' };
   };
 
   const totalScore = calculateTotal();
