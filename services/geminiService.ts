@@ -10,7 +10,9 @@ export const analyzeTeacherReport = async (driveLink: string) => {
     const result = await response.json();
 
     if (!response.ok) {
-      // إرجاع رسالة الخطأ مع التفاصيل إن وجدت
+      if (response.status === 429) {
+        throw new Error('عذراً، تم الوصول للحد الأقصى لطلبات التحليل المجانية المتاحة حالياً. يرجى الانتظار دقيقة واحدة ثم المحاولة مرة أخرى.');
+      }
       const errorMessage = result.details ? `${result.error}: ${result.details}` : (result.error || 'فشل التحليل');
       throw new Error(errorMessage);
     }

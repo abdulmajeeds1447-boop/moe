@@ -7,73 +7,56 @@ export async function POST(req: Request) {
   try {
     const { link } = await req.json();
 
-    // 1. التحقق من مفاتيح البيئة
     if (!process.env.API_KEY) {
       return NextResponse.json({ error: 'مفتاح Gemini API غير معرف في إعدادات السيرفر.' }, { status: 500 });
     }
 
     if (!link) return NextResponse.json({ error: 'رابط المجلد مطلوب' }, { status: 400 });
 
-    // 2. جلب الملفات من قوقل درايف
     let driveFiles;
     try {
       driveFiles = await getDriveFiles(link);
     } catch (driveError: any) {
-      console.error("Drive Error:", driveError);
       return NextResponse.json({ 
         error: 'خطأ في الوصول للمجلد', 
-        details: driveError.message || 'تأكد من إعدادات المشاركة (أي شخص لديه الرابط).' 
+        details: driveError.message 
       }, { status: 403 });
     }
 
     if (!driveFiles || driveFiles.length === 0) {
       return NextResponse.json({ 
-        error: 'المجلد فارغ أو لا يحتوي على ملفات مدعومة (PDF أو صور). تأكد من رفع الشواهد.' 
+        error: 'المجلد فارغ أو لا يحتوي على ملفات مدعومة (PDF أو صور).' 
       }, { status: 404 });
     }
 
-    // 3. تجهيز الأجزاء (Parts) لإرسالها للذكاء الاصطناعي
-    // نرسل أول 10 ملفات فقط لضمان عدم تجاوز حدود الذاكرة أو التوكنز
+    // تقليل عدد الملفات المرسلة لـ 5 ملفات فقط لتقليل استهلاك الكوتا (Quota)
     const promptParts: any[] = [];
+    const limitedFiles = driveFiles.slice(0, 5); 
     
-    for (const file of driveFiles.slice(0, 10)) {
-      // تحويل Uint8Array إلى Base64
+    for (const file of limitedFiles) {
       const base64Data = Buffer.from(file.buffer).toString('base64');
-      
       promptParts.push({
         inlineData: {
           data: base64Data,
           mimeType: file.mimeType
         }
       });
-      
-      // إضافة اسم الملف كمرجع نصي
-      promptParts.push({ text: `اسم الملف المرفق: ${file.name}\n` });
+      promptParts.push({ text: `وثيقة بعنوان: ${file.name}\n` });
     }
 
     promptParts.push({ 
-      text: "بناءً على الشواهد والوثائق المرفقة أعلاه (سواء كانت شهادات حضور، خطط دروس، أو سجلات)، قم بإجراء التقييم التربوي المطلوب للمعلم نايف أحمد الشهري بناءً على المعايير الـ 11 المذكورة في تعليمات النظام." 
+      text: "بناءً على الشواهد المرفقة، قم بتقييم أداء المعلم نايف أحمد الشهري للأرقام من 1 إلى 11 (الدرجة من 5). أرجع النتيجة بتنسيق JSON حصراً." 
     });
 
-    // 4. استدعاء Gemini
     const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
     
-    const systemInstruction = `
-أنت خبير تربوي سعودي تعمل مساعداً لمدير مدرسة. مهمتك هي تحليل الوثائق المرفقة (PDF وصور) وتقييم أداء المعلم بناءً على معايير وزارة التعليم.
-يجب عليك النظر في الشهادات والوثائق والبحث عن الأدلة لكل معيار من المعايير الـ 11 التالية:
-1. أداء الواجبات الوظيفية 2. التفاعل مع المجتمع 3. التفاعل مع أولياء الأمور 4. التنويع في التدريس 5. تحسين نتائج الطلاب 6. إعداد خطة التعلم 7. توظيف التقنية 8. تهيئة البيئة التعليمية 9. الإدارة الصفية 10. تحليل النتائج 11. تنوع أساليب التقويم.
-
-قم بتقدير درجة من 1 إلى 5 لكل معيار. إذا كانت الوثائق لا تغطي معياراً معيناً، ضع درجة تقديرية منخفضة أو متوسطة مع التوضيح.
-
-يجب أن تكون النتيجة JSON حصراً:
-{
-  "suggested_scores": { "1": 5, "2": 4, "3": 5, "4": 4, "5": 5, "6": 4, "7": 5, "8": 5, "9": 4, "10": 5, "11": 4 },
-  "justification": "شرح مختصر ومبني على الوثائق التي رأيتها..."
-}
-`;
+    const systemInstruction = `أنت خبير تربوي سعودي. حلل الوثائق المرفقة لتقييم المعلم.
+    المعايير: 1.الواجبات 2.المجتمع 3.أولياء الأمور 4.التنويع 5.النتائج 6.الخطة 7.التقنية 8.البيئة 9.الإدارة 10.التحليل 11.التقويم.
+    يجب أن يكون الرد JSON:
+    {"suggested_scores": {"1":5, ...}, "justification": "..."}`;
 
     const response = await ai.models.generateContent({
-      model: 'gemini-2.0-flash-exp', // استخدام موديل فلاش لسرعة الاستجابة ودعم الملفات
+      model: 'gemini-3-flash-preview', // استخدام الموديل الأحدث والأكثر توفراً
       contents: { parts: promptParts },
       config: {
         systemInstruction: systemInstruction,
@@ -97,16 +80,22 @@ export async function POST(req: Request) {
       }
     });
 
-    const resultText = response.text;
-    if (!resultText) throw new Error("لم يرجع الذكاء الاصطناعي أي نتيجة.");
-
-    return NextResponse.json(JSON.parse(resultText));
+    return NextResponse.json(JSON.parse(response.text || '{}'));
 
   } catch (error: any) {
-    console.error("Analysis API Critical Error:", error);
+    console.error("AI API Error:", error);
+    
+    // التعامل مع خطأ تجاوز الحد (Quota Exceeded)
+    if (error.message?.includes('429') || error.status === 429) {
+      return NextResponse.json({ 
+        error: 'تم الوصول للحد الأقصى للطلبات المجانية حالياً', 
+        details: 'يرجى الانتظار لمدة دقيقة واحدة ثم إعادة المحاولة مرة أخرى.' 
+      }, { status: 429 });
+    }
+
     return NextResponse.json({ 
       error: 'فشل عملية التحليل الذكي', 
-      details: error.message || 'خطأ غير معروف' 
+      details: error.message 
     }, { status: 500 });
   }
 }
