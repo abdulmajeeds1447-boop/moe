@@ -48,11 +48,11 @@ const EvaluationModal: React.FC<EvaluationModalProps> = ({ submission, onClose, 
   };
 
   const getGradeInfo = (t: number) => {
-    if (t >= 90) return { label: 'ممتاز / رائد', value: 5, color: 'text-emerald-600', printColor: 'black' };
-    if (t >= 80) return { label: 'جيد جداً / قوي', value: 4, color: 'text-blue-600', printColor: 'black' };
-    if (t >= 70) return { label: 'جيد', value: 3, color: 'text-cyan-600', printColor: 'black' };
-    if (t >= 60) return { label: 'مرضي / مقبول', value: 2, color: 'text-amber-600', printColor: 'black' };
-    return { label: 'غير مرضي / ضعيف', value: 1, color: 'text-red-600', printColor: 'black' };
+    if (t >= 90) return { label: 'ممتاز / رائد', value: 5, color: 'text-emerald-600' };
+    if (t >= 80) return { label: 'جيد جداً / قوي', value: 4, color: 'text-blue-600' };
+    if (t >= 70) return { label: 'جيد', value: 3, color: 'text-cyan-600' };
+    if (t >= 60) return { label: 'مرضي / مقبول', value: 2, color: 'text-amber-600' };
+    return { label: 'غير مرضي / ضعيف', value: 1, color: 'text-red-600' };
   };
 
   const totalScore = calculateTotal();
@@ -125,88 +125,85 @@ const EvaluationModal: React.FC<EvaluationModalProps> = ({ submission, onClose, 
   return (
     <div className="fixed inset-0 z-[200] flex items-center justify-center p-4 bg-slate-900/95 backdrop-blur-lg overflow-y-auto">
       
-      {/* --- ستايل الطباعة الاحترافي --- */}
+      {/* --- إصلاح الطباعة: استخدام visibility لضمان ظهور المحتوى --- */}
       <style type="text/css" media="print">
         {`
           @page { size: A4; margin: 0; }
-          body { margin: 0; padding: 0; background: white; -webkit-print-color-adjust: exact; }
+          body { visibility: hidden; background: white; }
           
-          /* إخفاء كل شيء ما عدا ورقة الطباعة */
-          body > *:not(.print-container) { display: none !important; }
-          
-          /* حاوية الطباعة */
-          .print-container { 
+          /* إظهار حاوية الطباعة فقط وتثبيتها في الأعلى */
+          .print-container, .print-container * { visibility: visible; }
+          .print-container {
             display: flex !important;
             flex-direction: column;
+            position: fixed;
+            top: 0;
+            left: 0;
             width: 210mm;
             height: 297mm;
             background: white;
-            position: absolute;
-            top: 0;
-            left: 0;
-            padding: 15mm; /* هوامش داخلية نظيفة */
-            box-sizing: border-box;
             z-index: 9999;
+            padding: 15mm;
+            box-sizing: border-box;
           }
 
-          /* تحسينات النصوص والحدود */
+          /* تنسيقات الجدول الاحترافي */
           .print-header { border-bottom: 2px solid #000; padding-bottom: 10px; margin-bottom: 20px; }
-          .print-table th { background-color: #f0f0f0 !important; color: black !important; border: 1px solid #000 !important; font-weight: 900 !important; }
-          .print-table td { border: 1px solid #000 !important; color: black !important; }
-          .print-box { border: 1px solid #000; border-radius: 8px; padding: 10px; margin-bottom: 15px; }
-          .print-grade-box { border: 2px solid #000; background: #fafafa !important; }
+          .print-table th { background-color: #f0f0f0 !important; color: black !important; border: 1px solid #000 !important; font-weight: 900 !important; -webkit-print-color-adjust: exact; }
+          .print-table td { border: 1px solid #000 !important; color: black !important; padding: 4px; }
+          .print-box { border: 1px solid #000; border-radius: 8px; padding: 10px; }
         `}
       </style>
 
-      {/* --- محتوى الطباعة (يظهر فقط عند الطباعة) --- */}
+      {/* --- محتوى الطباعة (مخفي بالشاشة، ظاهر بالطباعة) --- */}
       <div className="print-container hidden font-['Tajawal'] text-black">
         
         {/* الترويسة الرسمية */}
-        <div className="print-header flex justify-between items-center">
-          <div className="text-[10px] font-bold text-center leading-relaxed">
+        <div className="print-header flex justify-between items-center shrink-0">
+          <div className="text-[10px] font-bold text-center leading-relaxed w-1/3">
             <p>المملكة العربية السعودية</p>
             <p>وزارة التعليم</p>
             <p>الإدارة العامة للتعليم</p>
             <p>ثانوية الأمير عبدالمجيد الأولى</p>
           </div>
-          <div className="text-center">
+          <div className="text-center w-1/3">
              <img src="https://up6.cc/2026/01/176840436497671.png" className="h-16 object-contain mb-1 mx-auto grayscale" alt="Logo" />
-             <h1 className="text-lg font-black mt-2 border-2 border-black px-4 py-1 rounded-lg">بطاقة الأداء الوظيفي</h1>
+             <h1 className="text-lg font-black mt-2 border-2 border-black px-4 py-1 rounded-lg inline-block">بطاقة الأداء الوظيفي</h1>
           </div>
-          <div className="text-[10px] font-bold text-left leading-relaxed">
+          <div className="text-[10px] font-bold text-left leading-relaxed w-1/3">
             <p>التاريخ: {new Date().toLocaleDateString('ar-SA')}</p>
             <p>العام الدراسي: 1446هـ</p>
-            <p>الرقم المرجعي: {submission.id.slice(0, 8)}</p>
+            <p>رقم الملف: {submission.id.slice(0, 8)}</p>
           </div>
         </div>
 
-        {/* بيانات المعلم والدرجة النهائية */}
-        <div className="flex gap-4 mb-6">
-          <div className="flex-1 print-box">
+        {/* بيانات المعلم والدرجة - تصميم مضغوط */}
+        <div className="flex gap-4 mb-4 shrink-0">
+          <div className="flex-1 print-box bg-slate-50">
              <table className="w-full text-[10px]">
                <tbody>
-                 <tr><td className="py-1 font-bold w-20">اسم المعلم:</td><td>{submission.teacher?.full_name}</td></tr>
-                 <tr><td className="py-1 font-bold">المادة:</td><td>{submission.subject}</td></tr>
-                 <tr><td className="py-1 font-bold">المقيم:</td><td>مدير المدرسة (نايف الشهري)</td></tr>
+                 <tr><td className="py-1 font-bold w-20 border-0">اسم المعلم:</td><td className="border-0">{submission.teacher?.full_name}</td></tr>
+                 <tr><td className="py-1 font-bold border-0">المادة:</td><td className="border-0">{submission.subject}</td></tr>
+                 <tr><td className="py-1 font-bold border-0">المقيم:</td><td className="border-0">مدير المدرسة (نايف الشهري)</td></tr>
                </tbody>
              </table>
           </div>
-          <div className="w-40 print-grade-box flex flex-col items-center justify-center rounded-lg">
-             <p className="text-[9px] font-bold mb-1">الدرجة المستحقة</p>
-             <h2 className="text-3xl font-black">{totalScore}</h2>
-             <p className="text-[10px] font-bold mt-1">{gradeInfo.label}</p>
+          <div className="w-32 border-2 border-black rounded-lg flex flex-col items-center justify-center bg-slate-50 p-2">
+             <p className="text-[9px] font-bold">الدرجة المستحقة</p>
+             <h2 className="text-3xl font-black my-1">{totalScore}</h2>
+             <p className="text-[9px] font-bold">{gradeInfo.label}</p>
           </div>
         </div>
 
         {/* الجدول التفصيلي */}
-        <div className="mb-6 flex-1">
+        <div className="mb-4 flex-1">
           <table className="print-table w-full border-collapse text-[9px] text-center">
             <thead>
               <tr className="h-8">
-                <th className="w-10">م</th>
+                <th className="w-8">م</th>
                 <th className="text-right px-2">معيار التقييم</th>
-                <th className="w-16">الوزن</th>
-                <th className="w-20">الدرجة</th>
+                <th className="w-12">الوزن</th>
+                <th className="w-16">الدرجة</th>
               </tr>
             </thead>
             <tbody>
@@ -214,8 +211,8 @@ const EvaluationModal: React.FC<EvaluationModalProps> = ({ submission, onClose, 
                 const rawScore = Number(scores[c.id] || 0);
                 const weightedScore = (rawScore / 5) * c.weight;
                 return (
-                  <tr key={c.id} className="h-7">
-                    <td className="font-bold">{idx + 1}</td>
+                  <tr key={c.id}>
+                    <td className="font-bold bg-slate-50">{idx + 1}</td>
                     <td className="text-right px-2 font-semibold">{c.label}</td>
                     <td>{c.weight}</td>
                     <td className="font-black bg-slate-50">
@@ -224,7 +221,7 @@ const EvaluationModal: React.FC<EvaluationModalProps> = ({ submission, onClose, 
                   </tr>
                 );
               })}
-              <tr className="bg-slate-100 font-black h-8 border-t-2 border-black">
+              <tr className="bg-slate-200 font-black h-8 border-t-2 border-black">
                 <td colSpan={2} className="text-right px-2">المجموع الكلي</td>
                 <td>100</td>
                 <td className="text-[12px]">{totalScore}</td>
@@ -233,35 +230,34 @@ const EvaluationModal: React.FC<EvaluationModalProps> = ({ submission, onClose, 
           </table>
         </div>
 
-        {/* التبريرات والملاحظات */}
-        <div className="print-box h-32 relative mb-6">
-           <h3 className="font-black text-[10px] border-b border-black inline-block mb-2">رأي الخبير التربوي وملاحظات التحسين:</h3>
-           <p className="text-[9px] leading-relaxed text-justify whitespace-pre-wrap">
+        {/* الملاحظات - مساحة ثابتة */}
+        <div className="print-box h-28 mb-2 relative shrink-0">
+           <h3 className="font-black text-[10px] border-b border-black inline-block mb-1">رأي الخبير التربوي وملاحظات التحسين:</h3>
+           <p className="text-[9px] leading-relaxed text-justify whitespace-pre-wrap absolute inset-2 top-8 overflow-hidden">
              {justification || 'لا توجد ملاحظات إضافية.'}
            </p>
         </div>
 
         {/* التواقيع */}
-        <div className="flex justify-between items-end mt-auto px-8 pb-4">
+        <div className="flex justify-between items-end mt-auto px-6 pb-2 shrink-0">
           <div className="text-center w-40">
-            <p className="font-bold text-[10px] mb-8">توقيع المعلم/ة</p>
+            <p className="font-bold text-[10px] mb-6">توقيع المعلم/ة</p>
             <div className="border-t border-dotted border-black pt-1">
               <p className="text-[9px]">{submission.teacher?.full_name}</p>
             </div>
           </div>
           <div className="text-center w-40">
-            <p className="font-bold text-[10px] mb-8">اعتماد مدير المدرسة</p>
+            <p className="font-bold text-[10px] mb-6">اعتماد مدير المدرسة</p>
             <div className="border-t border-dotted border-black pt-1">
               <p className="font-black text-[10px]">نايف أحمد الشهري</p>
-              <img src="https://up6.cc/2026/01/173772666879811.png" className="w-20 h-10 object-contain mx-auto opacity-50 absolute -mt-10 mr-10" alt="ختم" /> 
+              <p className="text-[8px] mt-1 text-gray-500">وثيقة رقمية معتمدة</p>
             </div>
           </div>
         </div>
 
       </div>
 
-      {/* --- الواجهة التفاعلية (Modal) --- */}
-      {/* هام: كلاس print:hidden يخفي هذا القسم تماماً عند الطباعة */}
+      {/* --- الواجهة التفاعلية (Modal) - مخفية عند الطباعة --- */}
       <div className="print:hidden bg-white w-full max-w-6xl rounded-[3rem] shadow-2xl flex flex-col max-h-[96vh] overflow-hidden">
         {/* رأس النافذة */}
         <div className="p-6 bg-moe-navy text-white flex justify-between items-center shrink-0">
@@ -328,7 +324,7 @@ const EvaluationModal: React.FC<EvaluationModalProps> = ({ submission, onClose, 
               ) : (
                 <div className="grid grid-cols-2 gap-4">
                   
-                  {/* زر المجلد (يظهر للجميع) */}
+                  {/* زر عرض المجلد (للجميع) */}
                   <a 
                     href={submission.drive_link} 
                     target="_blank" 
