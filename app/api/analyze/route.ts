@@ -10,8 +10,18 @@ export async function POST(req: Request) {
 
     if (!link) return NextResponse.json({ error: 'رابط المجلد مطلوب' }, { status: 400 });
 
-    const driveFiles = await getDriveFiles(link);
-    if (driveFiles.length === 0) return NextResponse.json({ error: 'لا توجد ملفات أو مجلدات فرعية تحتوي على شواهد' }, { status: 404 });
+    let driveFiles;
+    try {
+      driveFiles = await getDriveFiles(link);
+    } catch (driveError: any) {
+      return NextResponse.json({ error: driveError.message }, { status: 403 });
+    }
+
+    if (driveFiles.length === 0) {
+      return NextResponse.json({ 
+        error: 'المجلد فارغ أو لا يحتوي على ملفات مدعومة (PDF، صور، أو مستندات قوقل). يرجى التأكد من رفع الشواهد داخل المجلد.' 
+      }, { status: 404 });
+    }
 
     const validContents = [];
     for (const file of driveFiles) {
@@ -19,10 +29,12 @@ export async function POST(req: Request) {
       if (content) validContents.push(content);
     }
 
-    // Initialize GoogleGenAI with API key from environment
+    if (validContents.length === 0) {
+      return NextResponse.json({ error: 'لم نتمكن من قراءة محتوى الملفات الموجودة. تأكد من أنها ليست تالفة.' }, { status: 422 });
+    }
+
     const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
     
-    // الموجه التربوي الجديد بحسب طلبك الدقيق
     const systemInstruction = `
 أنت مساعد تقني وخبير تربوي تعمل مع مدير المدرسة "نايف أحمد الشهري". مهمتك هي تحليل الأدلة والملفات المقدمة من المعلمين لتقييم أدائهم الوظيفي بناءً على معايير وزارة التعليم السعودية بدقة وموضوعية.
 
@@ -34,7 +46,7 @@ export async function POST(req: Request) {
 4. التنويع في استراتيجيات التدريس: هل يستخدم استراتيجيات متنوعة تناسب المستويات المختلفة؟ هل توجد أدلة على مراعاة الفروق الفردية داخل الفصل؟
 5. تحسين نتائج المتعلمين: هل توجد خطط لمعالجة الفاقد التعليمي وخطط علاجية للطلاب الضعاف؟ هل توجد خطط إثرائية وتكريم للمتميزين؟
 6. إعداد وتنفيذ خطة التعلم: هل توزيع المنهج وإعداد الدروس والواجبات موثق ومنفذ؟
-7. توظيف تقنيات ووسائل التعلم المناسبة: هل تم دمج التقنية في التعليم؟ هل يوجد تنويع في الوسائل التعليمية المستخدمة؟
+7. توظيف تقنيات ووسائل التعلم المناسبة: هل تم دمج التقنية في التعليم? هل يوجد تنويع في الوسائل التعليمية المستخدمة؟
 8. تهيئة البيئة التعليمية: هل تمت مراعاة حاجات الطلاب والتهيئة النفسية لهم؟ هل يتم استخدام التحفيز المادي والمعنوي وتوفير متطلبات الدرس؟
 9. الإدارة الصفية: هل يوجد ما يشير لضبط سلوك الطلاب وشد انتباههم؟ هل تتم متابعة الحضور والغياب بدقة؟
 10. تحليل نتائج المتعلمين وتشخيص مستوياتهم: هل تم تحليل نتائج الاختبارات الفترية والنهائية؟ هل تم تصنيف الطلاب وتحديد نقاط القوة والضعف؟
@@ -60,10 +72,8 @@ export async function POST(req: Request) {
       }
     });
 
-    // Add a closing prompt to guide the model's final response
     promptParts.push({ text: "بناءً على الشواهد المرفوعة أعلاه، يرجى إجراء التقييم التربوي المطلوب وإرجاع النتائج بتنسيق JSON." });
 
-    // Use gemini-3-pro-preview for complex reasoning tasks like professional evaluation
     const response = await ai.models.generateContent({
       model: 'gemini-3-pro-preview',
       contents: { parts: promptParts },
@@ -89,7 +99,6 @@ export async function POST(req: Request) {
       }
     });
 
-    // Directly access text property from response
     return NextResponse.json(JSON.parse(response.text || '{}'));
   } catch (error: any) {
     console.error("Analysis API Error:", error);
