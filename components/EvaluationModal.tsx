@@ -17,7 +17,6 @@ const EvaluationModal: React.FC<EvaluationModalProps> = ({ submission, onClose, 
   const [analysisStatus, setAnalysisStatus] = useState('');
   const [isSaving, setIsSaving] = useState(false);
   
-  // الحالة الافتراضية للدرجات
   const [scores, setScores] = useState<Record<number, number>>({
     1: 0, 2: 0, 3: 0, 4: 0, 5: 0, 6: 0, 7: 0, 8: 0, 9: 0, 10: 0, 11: 0
   });
@@ -38,19 +37,16 @@ const EvaluationModal: React.FC<EvaluationModalProps> = ({ submission, onClose, 
     }
   };
 
-  // --- دالة الحساب الدقيقة (المعادلة الموزونة) ---
   const calculateTotal = () => {
     let total = 0;
     EVALUATION_CRITERIA.forEach(c => { 
       const rawScore = Number(scores[c.id] || 0);
-      // المعادلة: (الدرجة من 5) * (الوزن / 5) -> أو بتبسيط: (الدرجة / 5) * الوزن الكامل
       const weightedScore = (rawScore / 5) * c.weight;
       total += weightedScore;
     });
     return Math.min(100, Math.round(total)); 
   };
 
-  // --- دالة التقدير بالمسميات الجديدة ---
   const getGradeInfo = (t: number) => {
     if (t >= 90) return { label: 'ممتاز / رائد', value: 5, color: 'text-emerald-200' };
     if (t >= 80) return { label: 'جيد جداً / قوي', value: 4, color: 'text-blue-200' };
@@ -118,7 +114,6 @@ const EvaluationModal: React.FC<EvaluationModalProps> = ({ submission, onClose, 
   const sendWhatsApp = () => {
     const teacherName = submission.teacher?.full_name || 'الزميل المعلم';
     const cleanJustification = (justification || '').replace(/\*\*/g, '').replace(/\*/g, '-');
-    
     const message = `*تقرير الأداء الوظيفي* 📄%0A%0A` +
       `*المعلم:* ${teacherName}%0A` +
       `*النتيجة النهائية:* ${totalScore}%%0A` +
@@ -126,15 +121,28 @@ const EvaluationModal: React.FC<EvaluationModalProps> = ({ submission, onClose, 
       `*التقدير:* ${gradeInfo.label}%0A%0A` +
       `*أبرز الملحوظات:*%0A${cleanJustification}%0A%0A` +
       `مدير المدرسة: نايف أحمد الشهري`;
-    
     window.open(`https://wa.me/?text=${message}`, '_blank');
   };
 
   return (
     <div className="fixed inset-0 z-[200] flex items-center justify-center p-4 bg-slate-900/95 backdrop-blur-lg overflow-y-auto">
       
+      {/* 🔴 هام جداً: هذا الكود يمنع ظهور الصفحة الثانية بإجبار المتصفح على إلغاء الهوامش */}
+      <style type="text/css" media="print">
+        {`
+          @page { size: A4; margin: 0; }
+          body { margin: 0; padding: 0; }
+          /* إخفاء أي شيء ليس له علاقة بالتقرير المطبوع */
+          body * { visibility: hidden; }
+          .print-content, .print-content * { visibility: visible; }
+          .print-content { position: absolute; left: 0; top: 0; width: 100%; height: 100%; }
+        `}
+      </style>
+
       {/* --- قسم الطباعة (A4) --- */}
-      <div className="hidden print:flex flex-col w-[210mm] h-[297mm] bg-white p-[12mm] text-black font-['Tajawal'] overflow-hidden border relative">
+      {/* إضافة كلاس 'print-content' هنا لربطه بكود الـ style أعلاه */}
+      <div className="print-content hidden print:flex flex-col w-[210mm] h-[297mm] bg-white p-[12mm] text-black font-['Tajawal'] overflow-hidden border relative">
+        
         {/* الترويسة */}
         <div className="flex justify-between items-center border-b-2 border-moe-navy pb-3 mb-4 shrink-0">
           <div className="text-[9px] font-bold space-y-0.5">
@@ -192,15 +200,17 @@ const EvaluationModal: React.FC<EvaluationModalProps> = ({ submission, onClose, 
         </div>
 
         {/* التبريرات */}
-        <div className="flex-1 overflow-hidden">
-           <h3 className="font-black text-[10px] text-moe-navy mb-1 underline">رأي الخبير التربوي:</h3>
-           <p className="text-[9px] leading-relaxed text-slate-700 italic text-justify whitespace-pre-wrap border p-2 h-full">
-             {justification}
-           </p>
+        <div className="flex-1 overflow-hidden flex flex-col">
+           <h3 className="font-black text-[10px] text-moe-navy mb-1 underline shrink-0">رأي الخبير التربوي:</h3>
+           <div className="flex-1 border p-2 relative">
+             <p className="text-[9px] leading-relaxed text-slate-700 italic text-justify whitespace-pre-wrap absolute inset-0 p-2 overflow-hidden">
+               {justification}
+             </p>
+           </div>
         </div>
 
         {/* التواقيع */}
-        <div className="mt-auto pt-4 flex justify-between items-end text-center shrink-0">
+        <div className="mt-4 pt-4 flex justify-between items-end text-center shrink-0">
           <div className="w-48 border-t border-dotted border-black pt-2">
             <p className="font-black text-[9px]">توقيع المعلم</p>
           </div>
@@ -210,7 +220,7 @@ const EvaluationModal: React.FC<EvaluationModalProps> = ({ submission, onClose, 
         </div>
       </div>
 
-      {/* --- الواجهة التفاعلية (Modal) --- */}
+      {/* --- الواجهة التفاعلية (Modal) - مخفية أثناء الطباعة بواسطة CSS --- */}
       <div className="bg-white w-full max-w-6xl rounded-[3rem] shadow-2xl flex flex-col max-h-[96vh] overflow-hidden no-print">
         {/* رأس النافذة */}
         <div className="p-6 bg-moe-navy text-white flex justify-between items-center shrink-0">
@@ -253,22 +263,15 @@ const EvaluationModal: React.FC<EvaluationModalProps> = ({ submission, onClose, 
             {/* القائمة اليسرى: النتائج والأزرار */}
             <div className="space-y-8">
               
-              {/* --- بطاقة النتيجة المعدلة (نسبة، معدل، تقدير) --- */}
               <div className="bg-gradient-to-br from-moe-navy to-moe-teal p-8 rounded-[2.5rem] text-white shadow-xl relative overflow-hidden flex flex-col items-center text-center justify-center gap-4">
-                
-                {/* 1. النسبة المئوية */}
                 <div className="relative z-10">
                   <h4 className="text-8xl font-black tracking-tighter drop-shadow-lg">{totalScore}%</h4>
                 </div>
-
                 <div className="w-full h-0.5 bg-white/20 rounded-full max-w-[200px]"></div>
-
-                {/* 2. المعدل من 5 + التقدير */}
                 <div className="flex flex-col items-center gap-1 z-10">
                   <div className="bg-white/10 backdrop-blur-md px-6 py-2 rounded-2xl border border-white/10 mb-2">
                     <p className="text-sm font-bold opacity-90">المعدل: <span className="text-xl font-black text-white mx-1">{gradeInfo.value}</span> من 5</p>
                   </div>
-                  
                   <h3 className={`text-3xl font-black ${gradeInfo.color} drop-shadow-md mt-1`}>
                     {gradeInfo.label}
                   </h3>
@@ -283,7 +286,6 @@ const EvaluationModal: React.FC<EvaluationModalProps> = ({ submission, onClose, 
                 </div>
               ) : (
                 <div className="grid grid-cols-2 gap-4">
-                  {/* 1. زر عرض المجلد (يظهر للجميع) */}
                   <a 
                     href={submission.drive_link} 
                     target="_blank" 
@@ -294,7 +296,6 @@ const EvaluationModal: React.FC<EvaluationModalProps> = ({ submission, onClose, 
                     عرض مجلد الشواهد (Drive)
                   </a>
 
-                  {/* 2. أزرار المدير فقط (تختفي عند المعلم) */}
                   {!isViewOnly && (
                     <>
                       <button onClick={runAIAnalysis} className="col-span-2 py-5 bg-white border-2 border-moe-teal text-moe-teal rounded-2xl font-black hover:bg-moe-teal hover:text-white transition-all shadow-md active:scale-95">
@@ -311,7 +312,6 @@ const EvaluationModal: React.FC<EvaluationModalProps> = ({ submission, onClose, 
                     </>
                   )}
 
-                  {/* 3. زر الطباعة (يظهر للجميع) */}
                   <button 
                     onClick={handlePrint} 
                     className="col-span-2 py-5 bg-slate-100 text-moe-navy border-2 border-slate-200 rounded-2xl font-black transition-all hover:bg-white active:scale-95 flex items-center justify-center gap-2"
@@ -321,7 +321,6 @@ const EvaluationModal: React.FC<EvaluationModalProps> = ({ submission, onClose, 
                 </div>
               )}
 
-              {/* بطاقة التبريرات */}
               <div className="bg-white p-6 rounded-[2.5rem] border border-slate-100 shadow-sm">
                 <h4 className="text-[11px] font-black text-slate-400 mb-4 uppercase">تبريرات التقييم:</h4>
                 <div className="w-full h-40 text-xs font-bold leading-relaxed bg-slate-50/50 p-4 rounded-xl overflow-y-auto whitespace-pre-wrap text-slate-700 border border-slate-100">
