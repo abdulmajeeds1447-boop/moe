@@ -283,6 +283,15 @@ const EvaluationModal: React.FC<EvaluationModalProps> = ({ submission, onClose, 
                 </div>
               ) : (
                 <div className="grid grid-cols-2 gap-4">
+                  <a 
+  href={submission.drive_link} 
+  target="_blank" 
+  rel="noopener noreferrer"
+  className="col-span-2 py-4 bg-blue-50 text-blue-600 border-2 border-blue-100 rounded-2xl font-black transition-all hover:bg-blue-100 hover:border-blue-200 active:scale-95 flex items-center justify-center gap-2"
+>
+  <span className="text-xl">📂</span>
+  عرض مجلد الشواهد (Google Drive)
+</a>
                   {!isViewOnly && (
                     <>
                       <button onClick={runAIAnalysis} className="col-span-2 py-5 bg-white border-2 border-moe-teal text-moe-teal rounded-2xl font-black hover:bg-moe-teal hover:text-white transition-all shadow-md active:scale-95">
