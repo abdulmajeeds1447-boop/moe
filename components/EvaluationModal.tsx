@@ -62,7 +62,6 @@ const EvaluationModal: React.FC<EvaluationModalProps> = ({ submission, onClose, 
     if (isViewOnly) return;
     setIsAnalyzing(true);
     setAnalysisStatus('جاري تحليل الشواهد بدقة تربوية صارمة...');
-    
     try {
       const data = await analyzeTeacherReport(submission.drive_link);
       if (data) {
@@ -127,21 +126,34 @@ const EvaluationModal: React.FC<EvaluationModalProps> = ({ submission, onClose, 
   return (
     <div className="fixed inset-0 z-[200] flex items-center justify-center p-4 bg-slate-900/95 backdrop-blur-lg overflow-y-auto">
       
-      {/* 🔴 هام جداً: هذا الكود يمنع ظهور الصفحة الثانية بإجبار المتصفح على إلغاء الهوامش */}
+      {/* ستايل الطباعة القسري لصفحة واحدة */}
       <style type="text/css" media="print">
         {`
           @page { size: A4; margin: 0; }
-          body { margin: 0; padding: 0; }
-          /* إخفاء أي شيء ليس له علاقة بالتقرير المطبوع */
-          body * { visibility: hidden; }
-          .print-content, .print-content * { visibility: visible; }
-          .print-content { position: absolute; left: 0; top: 0; width: 100%; height: 100%; }
+          body { margin: 0; padding: 0; visibility: hidden; }
+          /* إخفاء كل شيء وجعل ارتفاعه صفر لمنع الصفحات الفارغة */
+          body > * { display: none; }
+          
+          /* إظهار محتوى الطباعة فقط وتثبيته */
+          .print-content { 
+            display: flex !important;
+            visibility: visible !important;
+            position: fixed;
+            left: 0;
+            top: 0;
+            width: 210mm;
+            height: 296mm; /* أقل بمليمتر واحد لتجنب الصفحة الثانية */
+            z-index: 9999;
+            background: white;
+            margin: 0;
+            padding: 0;
+          }
+          .print-content * { visibility: visible; }
         `}
       </style>
 
       {/* --- قسم الطباعة (A4) --- */}
-      {/* إضافة كلاس 'print-content' هنا لربطه بكود الـ style أعلاه */}
-      <div className="print-content hidden print:flex flex-col w-[210mm] h-[297mm] bg-white p-[12mm] text-black font-['Tajawal'] overflow-hidden border relative">
+      <div className="print-content hidden print:flex flex-col w-[210mm] h-[296mm] bg-white p-[12mm] text-black font-['Tajawal'] overflow-hidden border relative">
         
         {/* الترويسة */}
         <div className="flex justify-between items-center border-b-2 border-moe-navy pb-3 mb-4 shrink-0">
@@ -199,13 +211,13 @@ const EvaluationModal: React.FC<EvaluationModalProps> = ({ submission, onClose, 
           </table>
         </div>
 
-        {/* التبريرات */}
-        <div className="flex-1 overflow-hidden flex flex-col">
+        {/* التبريرات - يتم قص النص الزائد لضمان عدم تجاوز الصفحة */}
+        <div className="flex-1 overflow-hidden flex flex-col min-h-0">
            <h3 className="font-black text-[10px] text-moe-navy mb-1 underline shrink-0">رأي الخبير التربوي:</h3>
-           <div className="flex-1 border p-2 relative">
-             <p className="text-[9px] leading-relaxed text-slate-700 italic text-justify whitespace-pre-wrap absolute inset-0 p-2 overflow-hidden">
+           <div className="flex-1 border p-2 relative overflow-hidden">
+             <div className="absolute inset-0 p-2 text-[9px] leading-relaxed text-slate-700 italic text-justify whitespace-pre-wrap overflow-hidden">
                {justification}
-             </p>
+             </div>
            </div>
         </div>
 
@@ -220,8 +232,9 @@ const EvaluationModal: React.FC<EvaluationModalProps> = ({ submission, onClose, 
         </div>
       </div>
 
-      {/* --- الواجهة التفاعلية (Modal) - مخفية أثناء الطباعة بواسطة CSS --- */}
-      <div className="bg-white w-full max-w-6xl rounded-[3rem] shadow-2xl flex flex-col max-h-[96vh] overflow-hidden no-print">
+      {/* --- الواجهة التفاعلية (Modal) --- */}
+      {/* كلاس print:hidden مهم جداً هنا لمنع طباعة الخلفية والأزرار */}
+      <div className="print:hidden bg-white w-full max-w-6xl rounded-[3rem] shadow-2xl flex flex-col max-h-[96vh] overflow-hidden">
         {/* رأس النافذة */}
         <div className="p-6 bg-moe-navy text-white flex justify-between items-center shrink-0">
           <div className="flex items-center gap-4">
@@ -286,6 +299,7 @@ const EvaluationModal: React.FC<EvaluationModalProps> = ({ submission, onClose, 
                 </div>
               ) : (
                 <div className="grid grid-cols-2 gap-4">
+                  {/* زر عرض المجلد (للجميع) */}
                   <a 
                     href={submission.drive_link} 
                     target="_blank" 
@@ -296,6 +310,7 @@ const EvaluationModal: React.FC<EvaluationModalProps> = ({ submission, onClose, 
                     عرض مجلد الشواهد (Drive)
                   </a>
 
+                  {/* أزرار المدير فقط */}
                   {!isViewOnly && (
                     <>
                       <button onClick={runAIAnalysis} className="col-span-2 py-5 bg-white border-2 border-moe-teal text-moe-teal rounded-2xl font-black hover:bg-moe-teal hover:text-white transition-all shadow-md active:scale-95">
@@ -312,6 +327,7 @@ const EvaluationModal: React.FC<EvaluationModalProps> = ({ submission, onClose, 
                     </>
                   )}
 
+                  {/* زر الطباعة (للجميع) */}
                   <button 
                     onClick={handlePrint} 
                     className="col-span-2 py-5 bg-slate-100 text-moe-navy border-2 border-slate-200 rounded-2xl font-black transition-all hover:bg-white active:scale-95 flex items-center justify-center gap-2"
