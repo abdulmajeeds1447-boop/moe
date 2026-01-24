@@ -21,9 +21,14 @@ body {
 @media print {
   @page {
     size: A4;
-    margin: 0; /* إلغاء هوامش المتصفح لنتحكم بها يدوياً */
+    margin: 0;
   }
   
+  html, body {
+    height: 297mm;
+    overflow: hidden;
+  }
+
   body {
     background: white !important;
     -webkit-print-color-adjust: exact;
@@ -38,8 +43,11 @@ body {
     display: block !important;
   }
 
-  /* ضمان عدم تقسيم العناصر */
-  tr, img, .print-block {
+  /* إجبار التقرير على أن يكون صفحة واحدة */
+  .print-page-container {
+    page-break-after: always;
     page-break-inside: avoid;
+    height: 297mm;
+    overflow: hidden;
   }
 }

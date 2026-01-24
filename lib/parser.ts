@@ -1,5 +1,7 @@
 
 import pdf from 'pdf-parse';
+// Import Buffer to resolve TypeScript "Cannot find name 'Buffer'" error
+import { Buffer } from 'buffer';
 
 function encodeToBase64(bytes: Uint8Array) {
   let binary = '';
