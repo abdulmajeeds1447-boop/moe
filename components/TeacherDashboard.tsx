@@ -114,11 +114,11 @@ const TeacherDashboard: React.FC<TeacherDashboardProps> = ({ user }) => {
           <div className="flex flex-col md:flex-row items-center justify-between gap-8 relative z-10">
             <div className="flex-1 space-y-6">
               <div className="inline-block px-4 py-1.5 bg-white text-moe-teal rounded-full text-[10px] font-black uppercase tracking-wider shadow-sm">
-                الموقع المعتمد
+                الموقع المساعد
               </div>
               <h2 className="text-4xl font-black leading-tight">المنصة الخارجية لإعداد التقارير</h2>
               <p className="text-base opacity-90 font-bold leading-relaxed max-w-2xl">
-                استخدم هذه المنصة لتوليد تقاريرك المهنية بشكل آلي وذكي وفق معايير الجودة التعليمية.
+                استخدم هذه المنصة لتوليد تقاريرك المهنية وفق معايير الجودة التعليمية.
               </p>
               
               <div className="bg-black/10 backdrop-blur-sm p-6 rounded-3xl border border-white/10 space-y-4">
@@ -144,7 +144,7 @@ const TeacherDashboard: React.FC<TeacherDashboardProps> = ({ user }) => {
                          <h3 className="text-lg font-black text-moe-navy">تنبيه أمني هام جداً!</h3>
                       </div>
                       <p className="text-xs font-bold text-slate-600 leading-relaxed">
-                         لضمان نجاح التحليل الذكي، يجب التأكد من ضبط إعدادات المشاركة للمجلد في Google Drive لتكون: <br/>
+                         لضمان نجاح التحليل ، يجب التأكد من ضبط إعدادات المشاركة للمجلد في Google Drive لتكون: <br/>
                          <span className="text-red-500 font-black underline decoration-wavy decoration-red-200">"أي شخص لديه الرابط" (Anyone with the link)</span>
                       </p>
                    </div>
@@ -183,7 +183,7 @@ const TeacherDashboard: React.FC<TeacherDashboardProps> = ({ user }) => {
            </div>
            <div>
              <h3 className="text-2xl font-black text-moe-navy">
-               {editingId ? 'تعديل بيانات الملف الرقمي' : 'إدراج رابط الشواهد الجديد'}
+               {editingId ? 'تعديل بيانات الملف الرقمي' : 'إدراج رابط الشواهد '}
              </h3>
              <p className="text-xs text-slate-400 font-bold mt-1">
                {editingId ? 'قم بتحديث البيانات المطلوبة ثم اضغط حفظ' : 'تأكد من اكتمال كافة التقارير داخل المجلد قبل الإرسال'}
@@ -198,7 +198,7 @@ const TeacherDashboard: React.FC<TeacherDashboardProps> = ({ user }) => {
                type="text" 
                value={subject} 
                onChange={e => setSubject(e.target.value)}
-               placeholder="مثال: لغتي - المرحلة المتوسطة"
+               placeholder="مثال: تقنية رقمية - المرحلة الثانوية"
                className="w-full px-8 py-5 bg-slate-50 rounded-2xl border-2 border-transparent outline-none focus:border-moe-teal/20 focus:bg-white focus:ring-4 focus:ring-moe-teal/5 font-bold text-slate-700 transition-all text-sm"
              />
           </div>
