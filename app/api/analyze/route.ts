@@ -1,81 +1,79 @@
 
 import { NextResponse } from 'next/server';
 import { getDriveFiles } from '../../../lib/drive';
-import { parseFileContent } from '../../../lib/parser';
 import { GoogleGenAI, Type } from "@google/genai";
 
 export async function POST(req: Request) {
   try {
     const { link } = await req.json();
 
+    // 1. التحقق من مفاتيح البيئة
+    if (!process.env.API_KEY) {
+      return NextResponse.json({ error: 'مفتاح Gemini API غير معرف في إعدادات السيرفر.' }, { status: 500 });
+    }
+
     if (!link) return NextResponse.json({ error: 'رابط المجلد مطلوب' }, { status: 400 });
 
+    // 2. جلب الملفات من قوقل درايف
     let driveFiles;
     try {
       driveFiles = await getDriveFiles(link);
     } catch (driveError: any) {
-      return NextResponse.json({ error: driveError.message }, { status: 403 });
+      console.error("Drive Error:", driveError);
+      return NextResponse.json({ 
+        error: 'خطأ في الوصول للمجلد', 
+        details: driveError.message || 'تأكد من إعدادات المشاركة (أي شخص لديه الرابط).' 
+      }, { status: 403 });
     }
 
-    if (driveFiles.length === 0) {
+    if (!driveFiles || driveFiles.length === 0) {
       return NextResponse.json({ 
-        error: 'المجلد فارغ أو لا يحتوي على ملفات مدعومة (PDF، صور، أو مستندات قوقل). يرجى التأكد من رفع الشواهد داخل المجلد.' 
+        error: 'المجلد فارغ أو لا يحتوي على ملفات مدعومة (PDF أو صور). تأكد من رفع الشواهد.' 
       }, { status: 404 });
     }
 
-    const validContents = [];
-    for (const file of driveFiles) {
-      const content = await parseFileContent(file);
-      if (content) validContents.push(content);
+    // 3. تجهيز الأجزاء (Parts) لإرسالها للذكاء الاصطناعي
+    // نرسل أول 10 ملفات فقط لضمان عدم تجاوز حدود الذاكرة أو التوكنز
+    const promptParts: any[] = [];
+    
+    for (const file of driveFiles.slice(0, 10)) {
+      // تحويل Uint8Array إلى Base64
+      const base64Data = Buffer.from(file.buffer).toString('base64');
+      
+      promptParts.push({
+        inlineData: {
+          data: base64Data,
+          mimeType: file.mimeType
+        }
+      });
+      
+      // إضافة اسم الملف كمرجع نصي
+      promptParts.push({ text: `اسم الملف المرفق: ${file.name}\n` });
     }
 
-    if (validContents.length === 0) {
-      return NextResponse.json({ error: 'لم نتمكن من قراءة محتوى الملفات الموجودة. تأكد من أنها ليست تالفة.' }, { status: 422 });
-    }
+    promptParts.push({ 
+      text: "بناءً على الشواهد والوثائق المرفقة أعلاه (سواء كانت شهادات حضور، خطط دروس، أو سجلات)، قم بإجراء التقييم التربوي المطلوب للمعلم نايف أحمد الشهري بناءً على المعايير الـ 11 المذكورة في تعليمات النظام." 
+    });
 
+    // 4. استدعاء Gemini
     const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
     
     const systemInstruction = `
-أنت مساعد تقني وخبير تربوي تعمل مع مدير المدرسة "نايف أحمد الشهري". مهمتك هي تحليل الأدلة والملفات المقدمة من المعلمين لتقييم أدائهم الوظيفي بناءً على معايير وزارة التعليم السعودية بدقة وموضوعية.
+أنت خبير تربوي سعودي تعمل مساعداً لمدير مدرسة. مهمتك هي تحليل الوثائق المرفقة (PDF وصور) وتقييم أداء المعلم بناءً على معايير وزارة التعليم.
+يجب عليك النظر في الشهادات والوثائق والبحث عن الأدلة لكل معيار من المعايير الـ 11 التالية:
+1. أداء الواجبات الوظيفية 2. التفاعل مع المجتمع 3. التفاعل مع أولياء الأمور 4. التنويع في التدريس 5. تحسين نتائج الطلاب 6. إعداد خطة التعلم 7. توظيف التقنية 8. تهيئة البيئة التعليمية 9. الإدارة الصفية 10. تحليل النتائج 11. تنوع أساليب التقويم.
 
-عند تحليل الملفات (مثل خطط الدروس، سجلات المتابعة، أو تقارير الأنشطة)، يجب عليك التحقق من وجود أدلة تثبت تحقق المهام الفرعية التالية لكل معيار من المعايير الـ 11:
+قم بتقدير درجة من 1 إلى 5 لكل معيار. إذا كانت الوثائق لا تغطي معياراً معيناً، ضع درجة تقديرية منخفضة أو متوسطة مع التوضيح.
 
-1. أداء الواجبات الوظيفية: هل يوجد دليل على التقيد بالدوام الرسمي وتأدية الحصص؟ هل هناك مشاركة في الإشراف والمناوبة وحصص الانتظار؟ هل يتم إعداد ومتابعة الدروس والواجبات والاختبارات بانتظام؟
-2. التفاعل مع المجتمع (مجتمعات التعلم المهنية): هل شارك المعلم في مجتمعات التعلم المهنية أو تبادل الزيارات؟ هل نفذ دروساً تطبيقية أو بحث الدرس؟ هل حضر دورات وورش تدريبية؟
-3. التفاعل مع أولياء الأمور: هل يوجد تواصل فعال مع أولياء الأمور بالتنسيق مع الموجه الطلابي؟ هل يتم تزويدهم بمستويات الطلاب والملاحظات الهامة؟ هل تم تفعيل الخطة الأسبوعية والمشاركة في الجمعية العمومية؟
-4. التنويع في استراتيجيات التدريس: هل يستخدم استراتيجيات متنوعة تناسب المستويات المختلفة؟ هل توجد أدلة على مراعاة الفروق الفردية داخل الفصل؟
-5. تحسين نتائج المتعلمين: هل توجد خطط لمعالجة الفاقد التعليمي وخطط علاجية للطلاب الضعاف؟ هل توجد خطط إثرائية وتكريم للمتميزين؟
-6. إعداد وتنفيذ خطة التعلم: هل توزيع المنهج وإعداد الدروس والواجبات موثق ومنفذ؟
-7. توظيف تقنيات ووسائل التعلم المناسبة: هل تم دمج التقنية في التعليم? هل يوجد تنويع في الوسائل التعليمية المستخدمة؟
-8. تهيئة البيئة التعليمية: هل تمت مراعاة حاجات الطلاب والتهيئة النفسية لهم؟ هل يتم استخدام التحفيز المادي والمعنوي وتوفير متطلبات الدرس؟
-9. الإدارة الصفية: هل يوجد ما يشير لضبط سلوك الطلاب وشد انتباههم؟ هل تتم متابعة الحضور والغياب بدقة؟
-10. تحليل نتائج المتعلمين وتشخيص مستوياتهم: هل تم تحليل نتائج الاختبارات الفترية والنهائية؟ هل تم تصنيف الطلاب وتحديد نقاط القوة والضعف؟
-11. تنوع أساليب التقويم: هل تم تطبيق اختبارات (ورقية/إلكترونية)؟ هل تم تفعيل المشاريع الطلابية، المهام الأدائية، وملفات الإنجاز؟
-
-المطلوب: بناءً على الأدلة الموجودة في الملفات المدخلة، قم بتقدير درجة لكل معيار (من 1 إلى 5). إذا لم يوجد دليل كافٍ لمهمة معينة، خفض الدرجة.
-
-يجب أن تكون مخرجاتك بصيغة JSON فقط كالتالي:
+يجب أن تكون النتيجة JSON حصراً:
 {
-  "suggested_scores": {
-    "1": number, "2": number, "3": number, "4": number, "5": number, "6": number, "7": number, "8": number, "9": number, "10": number, "11": number
-  },
-  "justification": "شرح مختصر لأسباب التقييم بناء على الأدلة المرفقة"
+  "suggested_scores": { "1": 5, "2": 4, "3": 5, "4": 4, "5": 5, "6": 4, "7": 5, "8": 5, "9": 4, "10": 5, "11": 4 },
+  "justification": "شرح مختصر ومبني على الوثائق التي رأيتها..."
 }
 `;
 
-    const promptParts: any[] = [];
-    validContents.forEach(item => {
-      if (item.type === 'text') {
-        promptParts.push({ text: `محتوى الملف (${item.name}):\n${item.content}\n---\n` });
-      } else if (item.type === 'image') {
-        promptParts.push({ inlineData: { data: item.content, mimeType: item.mimeType } });
-      }
-    });
-
-    promptParts.push({ text: "بناءً على الشواهد المرفوعة أعلاه، يرجى إجراء التقييم التربوي المطلوب وإرجاع النتائج بتنسيق JSON." });
-
     const response = await ai.models.generateContent({
-      model: 'gemini-3-pro-preview',
+      model: 'gemini-2.0-flash-exp', // استخدام موديل فلاش لسرعة الاستجابة ودعم الملفات
       contents: { parts: promptParts },
       config: {
         systemInstruction: systemInstruction,
@@ -99,9 +97,16 @@ export async function POST(req: Request) {
       }
     });
 
-    return NextResponse.json(JSON.parse(response.text || '{}'));
+    const resultText = response.text;
+    if (!resultText) throw new Error("لم يرجع الذكاء الاصطناعي أي نتيجة.");
+
+    return NextResponse.json(JSON.parse(resultText));
+
   } catch (error: any) {
-    console.error("Analysis API Error:", error);
-    return NextResponse.json({ error: 'فشل التحليل', details: error.message }, { status: 500 });
+    console.error("Analysis API Critical Error:", error);
+    return NextResponse.json({ 
+      error: 'فشل عملية التحليل الذكي', 
+      details: error.message || 'خطأ غير معروف' 
+    }, { status: 500 });
   }
 }
