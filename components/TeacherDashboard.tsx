@@ -150,7 +150,7 @@ const TeacherDashboard: React.FC<TeacherDashboardProps> = ({ user }) => {
                    </div>
                    <div className="shrink-0">
                       <img 
-                        src="https://up6.cc/2026/01/173773956555131.png" 
+                        src="/drive.png" 
                         alt="إعدادات الوصول في قوقل درايف" 
                         className="h-20 w-auto object-contain rounded-xl border border-slate-200 shadow-sm" 
                       />
