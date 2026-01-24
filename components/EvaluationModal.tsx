@@ -16,6 +16,8 @@ const EvaluationModal: React.FC<EvaluationModalProps> = ({ submission, onClose, 
   const [isAnalyzing, setIsAnalyzing] = useState(false);
   const [analysisStatus, setAnalysisStatus] = useState('');
   const [isSaving, setIsSaving] = useState(false);
+  
+  // الحالة الافتراضية للدرجات
   const [scores, setScores] = useState<Record<number, number>>({
     1: 0, 2: 0, 3: 0, 4: 0, 5: 0, 6: 0, 7: 0, 8: 0, 9: 0, 10: 0, 11: 0
   });
@@ -36,23 +38,25 @@ const EvaluationModal: React.FC<EvaluationModalProps> = ({ submission, onClose, 
     }
   };
 
+  // --- دالة الحساب الدقيقة (المعادلة الموزونة) ---
   const calculateTotal = () => {
     let total = 0;
     EVALUATION_CRITERIA.forEach(c => { 
       const rawScore = Number(scores[c.id] || 0);
+      // المعادلة: (الدرجة من 5) * (الوزن / 5) -> أو بتبسيط: (الدرجة / 5) * الوزن الكامل
       const weightedScore = (rawScore / 5) * c.weight;
       total += weightedScore;
     });
     return Math.min(100, Math.round(total)); 
   };
 
-  // --- تحديث دالة التقدير حسب القواعد الجديدة ---
+  // --- دالة التقدير بالمسميات الجديدة ---
   const getGradeInfo = (t: number) => {
-    if (t >= 90) return { label: 'ممتاز', value: 5, color: 'text-emerald-200' };
-    if (t >= 80) return { label: 'جيد جداً', value: 4, color: 'text-blue-200' };
+    if (t >= 90) return { label: 'ممتاز / رائد', value: 5, color: 'text-emerald-200' };
+    if (t >= 80) return { label: 'جيد جداً / قوي', value: 4, color: 'text-blue-200' };
     if (t >= 70) return { label: 'جيد', value: 3, color: 'text-cyan-200' };
-    if (t >= 60) return { label: 'مرضي', value: 2, color: 'text-amber-200' };
-    return { label: 'غير مرضي', value: 1, color: 'text-red-200' };
+    if (t >= 60) return { label: 'مرضي / مقبول', value: 2, color: 'text-amber-200' };
+    return { label: 'غير مرضي / ضعيف', value: 1, color: 'text-red-200' };
   };
 
   const totalScore = calculateTotal();
@@ -120,7 +124,7 @@ const EvaluationModal: React.FC<EvaluationModalProps> = ({ submission, onClose, 
       `*النتيجة النهائية:* ${totalScore}%%0A` +
       `*المعدل:* ${gradeInfo.value} من 5%0A` +
       `*التقدير:* ${gradeInfo.label}%0A%0A` +
-      `*الملحوظات:*%0A${cleanJustification}%0A%0A` +
+      `*أبرز الملحوظات:*%0A${cleanJustification}%0A%0A` +
       `مدير المدرسة: نايف أحمد الشهري`;
     
     window.open(`https://wa.me/?text=${message}`, '_blank');
@@ -129,8 +133,9 @@ const EvaluationModal: React.FC<EvaluationModalProps> = ({ submission, onClose, 
   return (
     <div className="fixed inset-0 z-[200] flex items-center justify-center p-4 bg-slate-900/95 backdrop-blur-lg overflow-y-auto">
       
-      {/* قسم الطباعة (A4) */}
+      {/* --- قسم الطباعة (A4) --- */}
       <div className="hidden print:flex flex-col w-[210mm] h-[297mm] bg-white p-[12mm] text-black font-['Tajawal'] overflow-hidden border relative">
+        {/* الترويسة */}
         <div className="flex justify-between items-center border-b-2 border-moe-navy pb-3 mb-4 shrink-0">
           <div className="text-[9px] font-bold space-y-0.5">
             <p>المملكة العربية السعودية</p>
@@ -147,12 +152,14 @@ const EvaluationModal: React.FC<EvaluationModalProps> = ({ submission, onClose, 
           </div>
         </div>
 
+        {/* بيانات المعلم */}
         <div className="grid grid-cols-3 gap-2 bg-slate-50 p-2 rounded-lg mb-4 border border-slate-100 text-[9px] shrink-0">
           <p><strong>الاسم:</strong> {submission.teacher?.full_name}</p>
           <p><strong>المادة:</strong> {submission.subject}</p>
           <p><strong>الدرجة:</strong> <span className="font-black">{totalScore}/100 ({gradeInfo.label})</span></p>
         </div>
 
+        {/* جدول الدرجات المطبوع */}
         <div className="mb-4 shrink-0">
           <table className="w-full border-collapse border border-slate-400 text-[8.5px]">
             <thead>
@@ -184,6 +191,7 @@ const EvaluationModal: React.FC<EvaluationModalProps> = ({ submission, onClose, 
           </table>
         </div>
 
+        {/* التبريرات */}
         <div className="flex-1 overflow-hidden">
            <h3 className="font-black text-[10px] text-moe-navy mb-1 underline">رأي الخبير التربوي:</h3>
            <p className="text-[9px] leading-relaxed text-slate-700 italic text-justify whitespace-pre-wrap border p-2 h-full">
@@ -191,6 +199,7 @@ const EvaluationModal: React.FC<EvaluationModalProps> = ({ submission, onClose, 
            </p>
         </div>
 
+        {/* التواقيع */}
         <div className="mt-auto pt-4 flex justify-between items-end text-center shrink-0">
           <div className="w-48 border-t border-dotted border-black pt-2">
             <p className="font-black text-[9px]">توقيع المعلم</p>
@@ -203,6 +212,7 @@ const EvaluationModal: React.FC<EvaluationModalProps> = ({ submission, onClose, 
 
       {/* --- الواجهة التفاعلية (Modal) --- */}
       <div className="bg-white w-full max-w-6xl rounded-[3rem] shadow-2xl flex flex-col max-h-[96vh] overflow-hidden no-print">
+        {/* رأس النافذة */}
         <div className="p-6 bg-moe-navy text-white flex justify-between items-center shrink-0">
           <div className="flex items-center gap-4">
             <div className="w-12 h-12 bg-moe-teal rounded-2xl flex items-center justify-center text-2xl shadow-lg">🤖</div>
@@ -240,10 +250,10 @@ const EvaluationModal: React.FC<EvaluationModalProps> = ({ submission, onClose, 
               </div>
             </div>
 
-            {/* القائمة اليسرى: النتائج */}
+            {/* القائمة اليسرى: النتائج والأزرار */}
             <div className="space-y-8">
               
-              {/* --- بطاقة النتيجة المعدلة --- */}
+              {/* --- بطاقة النتيجة المعدلة (نسبة، معدل، تقدير) --- */}
               <div className="bg-gradient-to-br from-moe-navy to-moe-teal p-8 rounded-[2.5rem] text-white shadow-xl relative overflow-hidden flex flex-col items-center text-center justify-center gap-4">
                 
                 {/* 1. النسبة المئوية */}
@@ -264,7 +274,6 @@ const EvaluationModal: React.FC<EvaluationModalProps> = ({ submission, onClose, 
                   </h3>
                 </div>
               </div>
-              {/* --------------------------- */}
 
               {/* أزرار التحكم */}
               {isAnalyzing ? (
@@ -274,7 +283,7 @@ const EvaluationModal: React.FC<EvaluationModalProps> = ({ submission, onClose, 
                 </div>
               ) : (
                 <div className="grid grid-cols-2 gap-4">
-                  {/* زر المجلد */}
+                  {/* 1. زر عرض المجلد (يظهر للجميع) */}
                   <a 
                     href={submission.drive_link} 
                     target="_blank" 
@@ -285,25 +294,34 @@ const EvaluationModal: React.FC<EvaluationModalProps> = ({ submission, onClose, 
                     عرض مجلد الشواهد (Drive)
                   </a>
 
+                  {/* 2. أزرار المدير فقط (تختفي عند المعلم) */}
                   {!isViewOnly && (
                     <>
                       <button onClick={runAIAnalysis} className="col-span-2 py-5 bg-white border-2 border-moe-teal text-moe-teal rounded-2xl font-black hover:bg-moe-teal hover:text-white transition-all shadow-md active:scale-95">
                         ⚡ تحليل الخبير التربوي (AI)
                       </button>
+                      
                       <button onClick={saveEvaluation} disabled={isSaving} className="py-5 bg-moe-navy text-white rounded-2xl font-black shadow-lg hover:brightness-110 active:scale-95">
                         {isSaving ? 'جاري الحفظ...' : 'اعتماد الدرجات'}
                       </button>
+
+                      <button onClick={sendWhatsApp} className="py-5 bg-[#25D366] text-white rounded-2xl font-black shadow-lg hover:bg-[#20bd5a] transition-all flex items-center justify-center gap-2 active:scale-95">
+                        واتساب
+                      </button>
                     </>
                   )}
-                  <button onClick={handlePrint} className={`py-5 bg-slate-100 text-moe-navy border-2 border-slate-200 rounded-2xl font-black transition-all hover:bg-white active:scale-95`}>
-                    📄 طباعة
-                  </button>
-                  <button onClick={sendWhatsApp} className="py-5 bg-[#25D366] text-white rounded-2xl font-black shadow-lg hover:bg-[#20bd5a] transition-all flex items-center justify-center gap-2 active:scale-95">
-                    واتساب
+
+                  {/* 3. زر الطباعة (يظهر للجميع) */}
+                  <button 
+                    onClick={handlePrint} 
+                    className="col-span-2 py-5 bg-slate-100 text-moe-navy border-2 border-slate-200 rounded-2xl font-black transition-all hover:bg-white active:scale-95 flex items-center justify-center gap-2"
+                  >
+                    📄 طباعة التقرير
                   </button>
                 </div>
               )}
 
+              {/* بطاقة التبريرات */}
               <div className="bg-white p-6 rounded-[2.5rem] border border-slate-100 shadow-sm">
                 <h4 className="text-[11px] font-black text-slate-400 mb-4 uppercase">تبريرات التقييم:</h4>
                 <div className="w-full h-40 text-xs font-bold leading-relaxed bg-slate-50/50 p-4 rounded-xl overflow-y-auto whitespace-pre-wrap text-slate-700 border border-slate-100">
