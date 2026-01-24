@@ -108,8 +108,7 @@ const TeacherDashboard: React.FC<TeacherDashboardProps> = ({ user }) => {
 
   return (
     <div className="max-w-6xl mx-auto space-y-10 pb-20 animate-in fade-in duration-700">
-      
-      {/* المنصة الخارجية لإعداد التقارير */}
+     {/* المنصة الخارجية لإعداد التقارير */}
       <div className="bg-moe-teal rounded-[3rem] p-1 shadow-2xl overflow-hidden no-print">
         <div className="bg-moe-teal p-8 md:p-12 text-white relative">
           <div className="flex flex-col md:flex-row items-center justify-between gap-8 relative z-10">
@@ -135,6 +134,31 @@ const TeacherDashboard: React.FC<TeacherDashboardProps> = ({ user }) => {
                   </div>
                 </div>
               </div>
+
+              {/* --- إضافة صورة ملاحظة الوصول العام هنا بشكل احترافي --- */}
+              <div className="bg-white/95 rounded-3xl p-6 border-2 border-dashed border-moe-teal/30 shadow-lg mt-6 transform hover:scale-[1.01] transition-all duration-300">
+                <div className="flex flex-col md:flex-row items-center gap-6">
+                   <div className="flex-1 space-y-2 text-center md:text-right">
+                      <div className="flex items-center gap-2 justify-center md:justify-start">
+                         <span className="text-2xl animate-pulse">🔐</span>
+                         <h3 className="text-lg font-black text-moe-navy">تنبيه أمني هام جداً!</h3>
+                      </div>
+                      <p className="text-xs font-bold text-slate-600 leading-relaxed">
+                         لضمان نجاح التحليل الذكي، يجب التأكد من ضبط إعدادات المشاركة للمجلد في Google Drive لتكون: <br/>
+                         <span className="text-red-500 font-black underline decoration-wavy decoration-red-200">"أي شخص لديه الرابط" (Anyone with the link)</span>
+                      </p>
+                   </div>
+                   <div className="shrink-0">
+                      <img 
+                        src="https://up6.cc/2026/01/173773956555131.png" 
+                        alt="إعدادات الوصول في قوقل درايف" 
+                        className="h-20 w-auto object-contain rounded-xl border border-slate-200 shadow-sm" 
+                      />
+                   </div>
+                </div>
+              </div>
+              {/* ---------------------------------------------------- */}
+
             </div>
 
             <a 
