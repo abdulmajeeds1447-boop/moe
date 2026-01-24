@@ -324,7 +324,7 @@ const EvaluationModal: React.FC<EvaluationModalProps> = ({ submission, onClose, 
               ) : (
                 <div className="grid grid-cols-2 gap-4">
                   
-                  {/* زر عرض المجلد (للجميع) */}
+                  {/* 1. زر عرض المجلد (يظهر للجميع: المعلم والمدير) */}
                   <a 
                     href={submission.drive_link} 
                     target="_blank" 
@@ -335,7 +335,7 @@ const EvaluationModal: React.FC<EvaluationModalProps> = ({ submission, onClose, 
                     عرض مجلد الشواهد (Drive)
                   </a>
 
-                  {/* أزرار المدير فقط */}
+                  {/* 2. أزرار التحكم والطباعة (تظهر للمدير فقط، وتختفي عند المعلم) */}
                   {!isViewOnly && (
                     <>
                       <button onClick={runAIAnalysis} className="col-span-2 py-5 bg-white border-2 border-moe-teal text-moe-teal rounded-2xl font-black hover:bg-moe-teal hover:text-white transition-all shadow-md active:scale-95">
@@ -349,17 +349,17 @@ const EvaluationModal: React.FC<EvaluationModalProps> = ({ submission, onClose, 
                       <button onClick={sendWhatsApp} className="py-5 bg-[#25D366] text-white rounded-2xl font-black shadow-lg hover:bg-[#20bd5a] transition-all flex items-center justify-center gap-2 active:scale-95">
                         واتساب
                       </button>
+
+                      {/* تم نقل زر الطباعة هنا ليظهر للمدير فقط */}
+                      <button 
+                        onClick={handlePrint} 
+                        className="col-span-2 py-5 bg-slate-100 text-moe-navy border-2 border-slate-200 rounded-2xl font-black transition-all hover:bg-white active:scale-95 flex items-center justify-center gap-2"
+                      >
+                        📄 طباعة التقرير (A4)
+                      </button>
                     </>
                   )}
-
-                  {/* زر الطباعة (للجميع) */}
-                  <button 
-                    onClick={handlePrint} 
-                    className="col-span-2 py-5 bg-slate-100 text-moe-navy border-2 border-slate-200 rounded-2xl font-black transition-all hover:bg-white active:scale-95 flex items-center justify-center gap-2"
-                  >
-                    📄 طباعة التقرير (A4)
-                  </button>
-                </div>
+              </div>
               )}
 
               <div className="bg-white p-6 rounded-[2.5rem] border border-slate-100 shadow-sm">
