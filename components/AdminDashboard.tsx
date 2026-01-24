@@ -17,6 +17,11 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ user }) => {
   const [loading, setLoading] = useState(true);
   const [view, setView] = useState<'list' | 'profile'>('list');
 
+  // حالات التعديل
+  const [editingSubId, setEditingSubId] = useState<string | null>(null);
+  const [editSubject, setEditSubject] = useState('');
+  const [editLink, setEditLink] = useState('');
+
   useEffect(() => {
     loadData();
   }, []);
@@ -25,7 +30,6 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ user }) => {
     setLoading(true);
     try {
       const { data: teachersData } = await supabase.from('profiles').select('*').eq('role', 'teacher');
-      // نجلب فقط التقديمات التي ليست مسودات (pending, evaluated)
       const { data: subsData } = await supabase
         .from('submissions')
         .select('*, teacher:profiles(*)')
@@ -38,6 +42,41 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ user }) => {
       console.error("Error loading admin data:", error);
     } finally {
       setLoading(false);
+    }
+  };
+
+  const handleDeleteSubmission = async (id: string) => {
+    if (!window.confirm('هل أنت متأكد من حذف هذا الملف نهائياً؟ لا يمكن التراجع عن هذا الإجراء.')) return;
+    
+    try {
+      const { error } = await supabase.from('submissions').delete().eq('id', id);
+      if (error) throw error;
+      alert('تم الحذف بنجاح');
+      loadData();
+    } catch (err: any) {
+      alert('فشل الحذف: ' + err.message);
+    }
+  };
+
+  const startEditing = (sub: Submission) => {
+    setEditingSubId(sub.id);
+    setEditSubject(sub.subject);
+    setEditLink(sub.drive_link);
+  };
+
+  const handleUpdateSubmission = async () => {
+    try {
+      const { error } = await supabase
+        .from('submissions')
+        .update({ subject: editSubject, drive_link: editLink })
+        .eq('id', editingSubId);
+      
+      if (error) throw error;
+      alert('تم تحديث البيانات بنجاح');
+      setEditingSubId(null);
+      loadData();
+    } catch (err: any) {
+      alert('فشل التحديث: ' + err.message);
     }
   };
 
@@ -63,7 +102,7 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ user }) => {
     return (
       <div className="animate-in slide-in-from-left-8 duration-500 space-y-8">
         <button 
-          onClick={() => { setView('list'); setSelectedTeacher(null); }}
+          onClick={() => { setView('list'); setSelectedTeacher(null); setEditingSubId(null); }}
           className="flex items-center gap-2 text-slate-500 font-bold hover:text-[#009688] transition-all bg-white px-4 py-2 rounded-xl shadow-sm border border-slate-100"
         >
           <svg className="w-5 h-5 rotate-180" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M10 19l-7-7m0 0l7-7m-7 7h18"></path></svg>
@@ -92,13 +131,57 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ user }) => {
                   {teacherSubs.map(sub => (
                     <div key={sub.id} className="bg-slate-50 p-6 rounded-[2.5rem] border border-slate-100 hover:border-[#009688] transition-all group relative">
                       <div className={`absolute top-0 right-0 w-1.5 h-full ${sub.status === 'evaluated' ? 'bg-green-500' : 'bg-amber-500'}`}></div>
+                      
+                      {/* أزرار التحكم في أعلى الكارد */}
+                      <div className="absolute top-4 left-4 flex gap-2 no-print">
+                        <button 
+                          onClick={() => startEditing(sub)}
+                          className="w-8 h-8 bg-white border border-slate-200 rounded-full flex items-center justify-center text-slate-400 hover:text-moe-teal transition-colors shadow-sm"
+                          title="تعديل المحتوى"
+                        >
+                          ✎
+                        </button>
+                        <button 
+                          onClick={() => handleDeleteSubmission(sub.id)}
+                          className="w-8 h-8 bg-white border border-slate-200 rounded-full flex items-center justify-center text-slate-400 hover:text-red-500 transition-colors shadow-sm"
+                          title="حذف الملف"
+                        >
+                          🗑
+                        </button>
+                      </div>
+
                       <div className="flex justify-between items-start mb-4">
                         <span className={`px-4 py-1.5 rounded-xl text-[10px] font-black ${sub.status === 'evaluated' ? 'bg-green-100 text-green-700' : 'bg-amber-100 text-amber-700'}`}>
                           {sub.status === 'evaluated' ? 'مكتمل' : 'بانتظار التحليل'}
                         </span>
                         <span className="text-[10px] font-bold text-slate-400">{new Date(sub.submitted_at).toLocaleDateString('ar-SA')}</span>
                       </div>
-                      <h4 className="font-black text-slate-800 text-lg mb-6">{sub.subject}</h4>
+
+                      {editingSubId === sub.id ? (
+                        <div className="space-y-3 mb-6 animate-in fade-in zoom-in-95 duration-200">
+                          <input 
+                            type="text" 
+                            value={editSubject} 
+                            onChange={e => setEditSubject(e.target.value)}
+                            className="w-full px-4 py-2 bg-white rounded-lg border border-slate-200 text-xs font-bold outline-none focus:ring-2 focus:ring-moe-teal"
+                            placeholder="اسم المادة"
+                          />
+                          <input 
+                            type="text" 
+                            value={editLink} 
+                            onChange={e => setEditLink(e.target.value)}
+                            className="w-full px-4 py-2 bg-white rounded-lg border border-slate-200 text-xs font-bold text-left outline-none focus:ring-2 focus:ring-moe-teal"
+                            placeholder="رابط الدرايف"
+                          />
+                          <div className="flex gap-2">
+                            <button onClick={handleUpdateSubmission} className="flex-1 py-2 bg-moe-teal text-white rounded-lg text-[10px] font-black">حفظ</button>
+                            <button onClick={() => setEditingSubId(null)} className="flex-1 py-2 bg-slate-200 text-slate-600 rounded-lg text-[10px] font-black">إلغاء</button>
+                          </div>
+                        </div>
+                      ) : (
+                        <h4 className="font-black text-slate-800 text-lg mb-6">{sub.subject}</h4>
+                      )}
+
                       <button 
                         onClick={() => { setSelectedSubmission(sub); setIsModalOpen(true); }}
                         className="w-full py-4 bg-[#0d333f] text-white rounded-2xl text-xs font-black shadow-md hover:brightness-125 transition-all"
