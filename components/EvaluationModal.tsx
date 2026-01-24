@@ -124,7 +124,45 @@ const EvaluationModal: React.FC<EvaluationModalProps> = ({ submission, onClose, 
 
   return (
     <div className="fixed inset-0 z-[200] flex items-center justify-center p-4 bg-slate-900/95 backdrop-blur-lg overflow-y-auto">
-      
+     {/* ✅✅ أضف الكود هنا في هذا المكان بالتحديد ✅✅ */}
+      <style type="text/css" media="print">
+        {`
+          @page { size: A4; margin: 0; }
+          body { margin: 0; padding: 0; background: white; -webkit-print-color-adjust: exact; }
+          
+          /* إخفاء كل شيء ما عدا ورقة الطباعة */
+          body > *:not(.print-container) { display: none !important; }
+          
+          /* حاوية الطباعة */
+          .print-container { 
+            display: flex !important;
+            flex-direction: column;
+            width: 210mm;
+            height: 296mm; /* تقليل 1 مم لضمان عدم تجاوز الصفحة */
+            background: white;
+            position: fixed;
+            top: 0;
+            left: 0;
+            right: 0;
+            margin: auto;
+            padding: 15mm;
+            box-sizing: border-box;
+            z-index: 9999;
+            
+            /* هذا السطر السحري للجوال: تصغير المحتوى قليلاً ليدخل كاملاً */
+            transform: scale(0.98); 
+            transform-origin: top center;
+          }
+
+          /* تحسينات النصوص والحدود */
+          .print-header { border-bottom: 2px solid #000; padding-bottom: 10px; margin-bottom: 20px; }
+          .print-table th { background-color: #f0f0f0 !important; color: black !important; border: 1px solid #000 !important; font-weight: 900 !important; -webkit-print-color-adjust: exact; }
+          .print-table td { border: 1px solid #000 !important; color: black !important; }
+          .print-box { border: 1px solid #000; border-radius: 8px; padding: 10px; margin-bottom: 15px; }
+          .print-grade-box { border: 2px solid #000; background: #fafafa !important; }
+        `}
+      </style>
+      {/* ✅✅ نهاية الكود المضاف ✅✅ */} 
       {/* --- إصلاح الطباعة: استخدام visibility لضمان ظهور المحتوى --- */}
       <style type="text/css" media="print">
         {`
