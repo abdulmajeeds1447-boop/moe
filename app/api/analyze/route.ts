@@ -1,9 +1,7 @@
+
 import { NextResponse } from 'next/server';
 import { getDriveFiles } from '../../../lib/drive';
-// 1. التغيير الذي طلبته: حذفنا SchemaType وعدنا للاستيراد البسيط
-import { GoogleGenerativeAI } from "@google/generative-ai";
-
-export const maxDuration = 60;
+import { GoogleGenAI, Type } from "@google/genai";
 
 export async function POST(req: Request) {
   try {
@@ -13,7 +11,10 @@ export async function POST(req: Request) {
       return NextResponse.json({ error: 'مفتاح Gemini API غير معرف.' }, { status: 500 });
     }
 
-    // جلب الملفات
+    if (!link) {
+      return NextResponse.json({ error: 'رابط المجلد مطلوب.' }, { status: 400 });
+    }
+
     let driveFiles;
     try {
       driveFiles = await getDriveFiles(link);
@@ -22,54 +23,97 @@ export async function POST(req: Request) {
     }
 
     if (!driveFiles || driveFiles.length === 0) {
-      return NextResponse.json({ error: 'المجلد فارغ.' }, { status: 404 });
+      return NextResponse.json({ error: 'المجلد فارغ من الشواهد المدعومة (PDF/صور).' }, { status: 404 });
     }
 
-    // تجهيز الملفات
+    // نأخذ أول 10 شواهد لضمان جودة التحليل وعدم تجاوز حدود الذاكرة
     const promptParts: any[] = [];
-    for (const file of driveFiles) {
+    const limitedFiles = driveFiles.slice(0, 10);
+    
+    for (const file of limitedFiles) {
       const base64Data = Buffer.from(file.buffer).toString('base64');
       promptParts.push({
         inlineData: { data: base64Data, mimeType: file.mimeType }
       });
-      promptParts.push({ text: `[شاهد: ${file.name}]\n` });
+      promptParts.push({ text: `وثيقة شاهد: ${file.name}\n` });
     }
 
-    // 2. التعليمات الصارمة (بدلاً من SchemaType)
-    const promptText = `
-أنت خبير تربوي. قيم المعلم بناءً على الشواهد المرفقة.
-المعايير (من 10%، والبيئة والإدارة 5%):
-1.الواجبات 2.المجتمع 3.أولياء الأمور 4.استراتيجيات التدريس 5.النتائج 6.خطة التعلم
-7.التقنية 8.البيئة 9.الإدارة 10.التحليل 11.التقويم.
-
-الدرجة من 1-5.
-مهم جداً: أخرج النتيجة بصيغة JSON فقط، بدون أي نصوص إضافية في البداية أو النهاية.
-الصيغة المطلوبة:
-{
-  "suggested_scores": { "1": 0, "2": 0, "3": 0, "4": 0, "5": 0, "6": 0, "7": 0, "8": 0, "9": 0, "10": 0, "11": 0 },
-  "justification": "اكتب التبرير هنا"
-}
-`;
-    promptParts.push({ text: promptText });
-
-    const genAI = new GoogleGenerativeAI(process.env.API_KEY);
-    
-    // 3. العودة للموديل الكلاسيكي الذي يعمل على كل النسخ
-    const model = genAI.getGenerativeModel({ model: "gemini-pro" });
-
-    const result = await model.generateContent({
-      contents: [{ role: 'user', parts: promptParts }],
+    promptParts.push({ 
+      text: "بناءً على الشواهد المرفوعة، قم بإجراء تقييم تربوي صارم ( للمعلم صاحب الملف) وفق المعايير الـ 11 المحددة." 
     });
 
-    const responseText = result.response.text();
-
-    // 4. تنظيف النص يدوياً لضمان أنه JSON (حل مشاكل التنسيق)
-    const cleanJson = responseText.replace(/```json|```/g, '').trim();
+    const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
     
-    return NextResponse.json(JSON.parse(cleanJson));
+    // التعليمات التربوية الصارمة بناءً على طلب المدير نايف الشهري
+    const systemInstruction = `
+أنت مساعد تقني وخبير تربوي تعمل مع مدير المدرسة "نايف أحمد الشهري". مهمتك هي تحليل الأدلة والملفات المقدمة من المعلمين لتقييم أدائهم الوظيفي بناءً على معايير وزارة التعليم السعودية بدقة وموضوعية.
+
+المعايير الـ 11 المطلوب تقييمها:
+1. أداء الواجبات الوظيفية: التقيد بالدوام، تأدية الحصص، الإشراف، المناوبة، وحصص الانتظار.
+2. التفاعل مع المجتمع: مجتمعات التعلم المهنية، تبادل الزيارات، الدروس التطبيقية، بحث الدرس.
+3. التفاعل مع أولياء الأمور: التواصل الفعال (الموجه الطلابي)، تزويدهم بالمستويات، الخطة الأسبوعية.
+4. التنويع في استراتيجيات التدريس: استراتيجيات متنوعة تناسب المستويات، ومراعاة الفروق الفردية.
+5. تحسين نتائج المتعلمين: معالجة الفاقد التعليمي، خطط علاجية، خطط إثرائية.
+6. إعداد وتنفيذ خطة التعلم: توثيق توزيع المنهج وإعداد الدروس والواجبات.
+7. توظيف تقنيات ووسائل التعلم: دمج التقنية والتنويع في الوسائل التعليمية.
+8. تهيئة البيئة التعليمية: مراعاة حاجات الطلاب، التهيئة النفسية، التحفيز.
+9. الإدارة الصفية: ضبط سلوك الطلاب، شد الانتباه، ومتابعة الحضور والغياب.
+10. تحليل نتائج المتعلمين: تحليل نتائج الاختبارات، وتصنيف الطلاب.
+11. تنوع أساليب التقويم: اختبارات ورقية وإلكترونية، مشاريع، مهام أدائية، ملفات إنجاز.
+
+القواعد الصارمة:
+- الدرجة من 0 إلى 5 لكل معيار.
+- خفض الدرجة لـ (0 أو 1) إذا لم تجد شاهداً صريحاً للمعيار.
+- كن دقيقاً جداً ولا تمنح درجة 5 إلا بوجود أدلة كافية وشاملة.
+
+الرد يجب أن يكون JSON فقط:
+{
+  "suggested_scores": { "1": 5, "2": 3, ... "11": 4 },
+  "justification": "تحليل مفصل بناءً على ما وجد في الشواهد"
+}
+    `;
+
+    const response = await ai.models.generateContent({
+      model: 'gemini-3-flash-preview', // تغيير الموديل للاسم الصحيح والمستقر
+      contents: { parts: promptParts },
+      config: {
+        systemInstruction: systemInstruction,
+        responseMimeType: 'application/json',
+        responseSchema: {
+          type: Type.OBJECT,
+          properties: {
+            suggested_scores: {
+              type: Type.OBJECT,
+              properties: {
+                "1": { type: Type.NUMBER }, "2": { type: Type.NUMBER }, "3": { type: Type.NUMBER },
+                "4": { type: Type.NUMBER }, "5": { type: Type.NUMBER }, "6": { type: Type.NUMBER },
+                "7": { type: Type.NUMBER }, "8": { type: Type.NUMBER }, "9": { type: Type.NUMBER },
+                "10": { type: Type.NUMBER }, "11": { type: Type.NUMBER }
+              }
+            },
+            justification: { type: Type.STRING }
+          },
+          required: ['suggested_scores', 'justification']
+        }
+      }
+    });
+
+    return NextResponse.json(JSON.parse(response.text || '{}'));
 
   } catch (error: any) {
-    console.error("AI Error:", error);
-    return NextResponse.json({ error: 'فشل التحليل', details: error.message }, { status: 500 });
+    console.error("Critical AI Error:", error);
+    
+    // التعامل مع خطأ الكوتا (Quota)
+    if (error.status === 429) {
+      return NextResponse.json({ 
+        error: 'تم تجاوز الحد المسموح للطلبات المجانية', 
+        details: 'يرجى المحاولة بعد دقيقة واحدة.' 
+      }, { status: 429 });
+    }
+
+    return NextResponse.json({ 
+      error: 'فشل التحليل الذكي', 
+      details: error.message 
+    }, { status: 500 });
   }
 }
