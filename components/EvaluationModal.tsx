@@ -11,7 +11,6 @@ interface EvaluationModalProps {
 }
 
 const EvaluationModal: React.FC<EvaluationModalProps> = ({ submission, onClose, isViewOnly = false }) => {
-  const [justification, setJustification] = useState('');
   const [justificationsList, setJustificationsList] = useState<string[]>([]);
   const [strengths, setStrengths] = useState<string[]>([]);
   const [weaknesses, setWeaknesses] = useState<string[]>([]);
@@ -30,11 +29,16 @@ const EvaluationModal: React.FC<EvaluationModalProps> = ({ submission, onClose, 
     try {
       const { data } = await supabase.from('evaluations').select('*').eq('submission_id', submission.id).maybeSingle();
       if (data) {
-        setJustification(data.ai_analysis || '');
         if (data.scores) {
           const normalized: Record<number, number> = {};
           Object.entries(data.scores).forEach(([k, v]) => normalized[Number(k)] = Number(v));
           setScores(normalized);
+        }
+        // استخراج التفاصيل من النص المخزن إذا وجد
+        const analysisText = data.ai_analysis || '';
+        if (analysisText.includes('نقاط القوة:')) {
+           const parts = analysisText.split('\n');
+           setRecommendation(parts.find(p => p.includes('التوصية:'))?.split(': ')[1] || '');
         }
       }
     } catch (e) { console.error("Load error:", e); }
@@ -53,33 +57,25 @@ const EvaluationModal: React.FC<EvaluationModalProps> = ({ submission, onClose, 
       });
       const { files, error: scanError } = await scanRes.json();
       if (scanError) throw new Error(scanError);
-      if (!files || files.length === 0) throw new Error('لا توجد ملفات صالحة للتحليل');
-
+      
       let allFindings = "";
-      setProgress({ current: 0, total: files.length, status: `تم اكتشاف ${files.length} ملفات. جاري استخراج الشواهد...` });
+      setProgress({ current: 0, total: files.length, status: `تم اكتشاف ${files.length} ملفات...` });
 
-      // تحليل كل ملف على حدة (تجنباً للـ Timeout)
       for (let i = 0; i < files.length; i++) {
         const file = files[i];
-        setProgress(p => ({ ...p, current: i + 1, status: `جاري قراءة وتحليل: ${file.name}...` }));
-
+        setProgress(p => ({ ...p, current: i + 1, status: `جاري تحليل: ${file.name}...` }));
         try {
-          const fileRes = await fetch('/api/analyze', {
+          const res = await fetch('/api/analyze', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ mode: 'partial', fileId: file.id, mimeType: file.mimeType, fileName: file.name })
           });
-          const data = await fileRes.json();
-          if (data.findings) {
-            allFindings += `--- مستند: ${file.name} ---\n${data.findings}\n\n`;
-          }
-        } catch (err) {
-          console.error(`Error analyzing ${file.name}`, err);
-        }
+          const data = await res.json();
+          if (data.findings) allFindings += `[${file.name}]:\n${data.findings}\n\n`;
+        } catch (e) {}
       }
 
-      // طلب التقييم النهائي بناءً على كل ما تم تجميعه
-      setProgress(p => ({ ...p, status: 'جاري إصدار الحكم النهائي والدرجات المستحقة...' }));
+      setProgress(p => ({ ...p, status: 'جاري إصدار القرار والتقرير النهائي...' }));
       const finalRes = await fetch('/api/analyze', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -87,16 +83,18 @@ const EvaluationModal: React.FC<EvaluationModalProps> = ({ submission, onClose, 
       });
       const result = await finalRes.json();
 
-      if (result.suggested_scores) {
-        setScores(result.suggested_scores);
+      if (result.scores) {
+        const normalizedScores: Record<number, number> = {};
+        Object.entries(result.scores).forEach(([k, v]) => normalizedScores[Number(k)] = Number(v));
+        
+        setScores(normalizedScores);
         setJustificationsList(result.justifications || []);
         setStrengths(result.strengths || []);
         setWeaknesses(result.weaknesses || []);
         setRecommendation(result.recommendation || '');
-        setJustification("تم التحليل بنجاح بناءً على كافة الشواهد المرفقة.");
       }
     } catch (err: any) {
-      alert(`حدث خطأ: ${err.message}`);
+      alert(`خطأ: ${err.message}`);
     } finally {
       setIsAnalyzing(false);
     }
@@ -110,7 +108,7 @@ const EvaluationModal: React.FC<EvaluationModalProps> = ({ submission, onClose, 
   const calculateTotal = () => {
     let total = 0;
     EVALUATION_CRITERIA.forEach(c => { total += calculateWeighted(c.id); });
-    return Math.min(100, Math.round(total * 10) / 10);
+    return Math.round(total * 10) / 10;
   };
 
   const totalScore = calculateTotal();
@@ -126,14 +124,7 @@ const EvaluationModal: React.FC<EvaluationModalProps> = ({ submission, onClose, 
   const saveEvaluation = async () => {
     setIsSaving(true);
     try {
-      const fullAnalysis = `
-المبررات التفصيلية:
-${justificationsList.map((j, i) => `${i+1}. ${j}`).join('\n')}
-
-نقاط القوة: ${strengths.join(' - ')}
-نقاط التطوير: ${weaknesses.join(' - ')}
-التوصية النهائية: ${recommendation}
-      `.trim();
+      const fullAnalysis = `المبررات: ${justificationsList.join(' | ')}\nنقاط القوة: ${strengths.join(', ')}\nنقاط التطوير: ${weaknesses.join(', ')}\nالتوصية: ${recommendation}`;
 
       await supabase.from('evaluations').upsert({
         submission_id: submission.id,
@@ -145,7 +136,7 @@ ${justificationsList.map((j, i) => `${i+1}. ${j}`).join('\n')}
       }, { onConflict: 'submission_id' });
       
       await supabase.from('submissions').update({ status: 'evaluated' }).eq('id', submission.id);
-      alert('✅ تم اعتماد التقييم وإصدار التقرير النهائي');
+      alert('✅ تم الاعتماد بنجاح');
       onClose();
     } catch (e) { alert('خطأ في الحفظ'); } finally { setIsSaving(false); }
   };
@@ -155,9 +146,9 @@ ${justificationsList.map((j, i) => `${i+1}. ${j}`).join('\n')}
       <div className="bg-white w-full max-w-7xl rounded-[3.5rem] shadow-2xl flex flex-col max-h-[96vh] overflow-hidden">
         
         {/* Header */}
-        <div className="p-8 bg-[#0d333f] text-white flex justify-between items-center no-print">
+        <div className="p-8 bg-[#0d333f] text-white flex justify-between items-center no-print border-b border-white/5">
           <div className="flex items-center gap-6">
-            <div className="w-16 h-16 bg-[#009688] rounded-3xl flex items-center justify-center text-3xl shadow-lg border border-white/10">🛡️</div>
+            <div className="w-16 h-16 bg-[#009688] rounded-3xl flex items-center justify-center text-3xl shadow-lg">🛡️</div>
             <div>
               <h2 className="text-2xl font-black">مركز التدقيق والقرار الرقمي</h2>
               <p className="text-[11px] text-[#009688] font-black uppercase tracking-widest">تحليل شامل لكافة مجلدات الشواهد</p>
@@ -171,33 +162,27 @@ ${justificationsList.map((j, i) => `${i+1}. ${j}`).join('\n')}
             
             {/* Left Column: Metrics */}
             <div className="space-y-6">
-              <div className="flex justify-between items-center mb-4">
-                <h3 className="text-xs font-black text-slate-400 uppercase tracking-widest">مصفوفة الدرجات المكتسبة</h3>
-                <div className="px-4 py-1 bg-slate-100 rounded-lg text-[10px] font-bold text-slate-500">مقياس 0-5</div>
-              </div>
+              <h3 className="text-xs font-black text-slate-400 uppercase tracking-widest mb-4">نتائج معايير الأداء المعتمدة</h3>
               <div className="grid gap-4">
                 {EVALUATION_CRITERIA.map((c, idx) => (
                   <div key={c.id} className="p-5 bg-white rounded-3xl border border-slate-100 shadow-sm hover:border-moe-teal transition-all group">
                     <div className="flex justify-between items-start mb-3">
                       <div className="flex-1">
                         <span className="text-sm font-black text-slate-800 block mb-1">{c.label}</span>
-                        <p className="text-[10px] text-slate-400 font-medium leading-relaxed">{justificationsList[idx] || 'بانتظار التحليل...'}</p>
+                        <p className="text-[10px] text-slate-500 font-bold leading-relaxed italic">
+                          {justificationsList[idx] || 'بانتظار التحليل لاستخراج المبررات...'}
+                        </p>
                       </div>
-                      <select 
-                        disabled={isViewOnly || isAnalyzing}
-                        value={scores[c.id]} 
-                        onChange={e => setScores(p => ({...p, [c.id]: parseInt(e.target.value)}))}
-                        className="bg-slate-50 px-4 py-2 rounded-xl text-xs font-black outline-none border border-slate-200 focus:border-moe-teal appearance-none text-center"
-                      >
-                        {[5,4,3,2,1,0].map(v => <option key={v} value={v}>{v}</option>)}
-                      </select>
+                      <div className="text-2xl font-black text-moe-teal bg-slate-50 w-12 h-12 rounded-2xl flex items-center justify-center shadow-inner">
+                        {scores[c.id]}
+                      </div>
                     </div>
                     <div className="flex items-center gap-3 pt-3 border-t border-slate-50">
-                       <span className="text-[9px] font-black text-moe-teal uppercase">الوزن: {c.weight}%</span>
-                       <div className="flex-1 h-1 bg-slate-100 rounded-full overflow-hidden">
-                          <div className="bg-moe-teal h-full transition-all duration-700" style={{ width: `${(scores[c.id] / 5) * 100}%` }} />
+                       <span className="text-[9px] font-black text-slate-400">الوزن المكتسب:</span>
+                       <div className="flex-1 h-1.5 bg-slate-100 rounded-full overflow-hidden">
+                          <div className="bg-moe-teal h-full transition-all duration-700 shadow-sm shadow-moe-teal/20" style={{ width: `${(scores[c.id] / 5) * 100}%` }} />
                        </div>
-                       <span className="text-[10px] font-black text-slate-800">{calculateWeighted(c.id).toFixed(1)}%</span>
+                       <span className="text-[10px] font-black text-[#0d333f]">{calculateWeighted(c.id).toFixed(1)}%</span>
                     </div>
                   </div>
                 ))}
@@ -208,17 +193,16 @@ ${justificationsList.map((j, i) => `${i+1}. ${j}`).join('\n')}
             <div className="space-y-10">
               {/* Decision Box */}
               <div className="bg-[#0d333f] p-12 rounded-[3.5rem] text-white text-center shadow-2xl relative overflow-hidden">
-                <div className="absolute top-0 right-0 w-40 h-40 bg-white/5 rounded-full -translate-y-1/2 translate-x-1/2 blur-2xl"></div>
-                <p className="text-xs font-bold opacity-60 mb-2 tracking-widest">نسبة الأداء العام</p>
+                <p className="text-xs font-bold opacity-60 mb-2 tracking-widest uppercase">النسبة المئوية النهائية</p>
                 <h4 className="text-9xl font-black mb-6 tracking-tighter">{totalScore}%</h4>
-                <div className={`px-10 py-3 rounded-full inline-block font-black text-sm ${gradeInfo.color} ${gradeInfo.bg} shadow-xl`}>
+                <div className={`px-10 py-3 rounded-full inline-block font-black text-sm shadow-xl ${gradeInfo.color} ${gradeInfo.bg}`}>
                   {gradeInfo.label}
                 </div>
               </div>
 
               {isAnalyzing ? (
-                <div className="bg-white p-12 rounded-[3rem] border-2 border-dashed border-moe-teal/30 text-center space-y-8 animate-pulse">
-                  <div className="w-20 h-20 border-4 border-moe-teal border-t-transparent rounded-full animate-spin mx-auto shadow-lg shadow-moe-teal/20"></div>
+                <div className="bg-white p-12 rounded-[3rem] border-2 border-dashed border-moe-teal/30 text-center space-y-8">
+                  <div className="w-20 h-20 border-4 border-moe-teal border-t-transparent rounded-full animate-spin mx-auto"></div>
                   <div className="space-y-3">
                     <p className="font-black text-xl text-[#0d333f]">{progress.status}</p>
                     <div className="w-full bg-slate-100 h-2.5 rounded-full overflow-hidden">
@@ -229,45 +213,46 @@ ${justificationsList.map((j, i) => `${i+1}. ${j}`).join('\n')}
               ) : (
                 <div className="space-y-6">
                   {!isViewOnly && (
-                    <button onClick={runAdvancedAnalysis} className="w-full py-7 bg-moe-teal text-white rounded-[2rem] font-black shadow-2xl shadow-moe-teal/20 hover:scale-[1.02] active:scale-[0.98] transition-all text-xl">
-                      🚀 تحليل المجلد بالكامل وإصدار القرار
+                    <button onClick={runAdvancedAnalysis} className="w-full py-7 bg-moe-teal text-white rounded-[2rem] font-black shadow-2xl hover:scale-[1.01] transition-all text-xl">
+                      🚀 تحليل المجلد بالكامل واستخراج المبررات
                     </button>
                   )}
 
-                  {/* Summary Card */}
+                  {/* Analysis Summary */}
                   <div className="bg-white p-10 rounded-[3rem] border border-slate-100 shadow-sm space-y-8">
                     {strengths.length > 0 && (
                       <div className="grid grid-cols-2 gap-6">
-                        <div className="space-y-3">
-                           <h5 className="text-[10px] font-black text-emerald-600 uppercase tracking-widest">نقاط القوة المرصودة:</h5>
+                        <div className="bg-emerald-50/50 p-6 rounded-3xl border border-emerald-100">
+                           <h5 className="text-[10px] font-black text-emerald-600 uppercase mb-3">نقاط التميز:</h5>
                            <ul className="space-y-2">
-                             {strengths.map((s,i) => <li key={i} className="text-xs font-bold text-slate-700 flex items-start gap-2"><span className="text-emerald-500">✓</span> {s}</li>)}
+                             {strengths.map((s,i) => <li key={i} className="text-xs font-bold text-slate-700 flex items-start gap-2"><span>•</span> {s}</li>)}
                            </ul>
                         </div>
-                        <div className="space-y-3">
-                           <h5 className="text-[10px] font-black text-amber-600 uppercase tracking-widest">نقاط التطوير:</h5>
+                        <div className="bg-amber-50/50 p-6 rounded-3xl border border-amber-100">
+                           <h5 className="text-[10px] font-black text-amber-600 uppercase mb-3">مجالات التطوير:</h5>
                            <ul className="space-y-2">
-                             {weaknesses.map((w,i) => <li key={i} className="text-xs font-bold text-slate-700 flex items-start gap-2"><span className="text-amber-500">!</span> {w}</li>)}
+                             {weaknesses.map((w,i) => <li key={i} className="text-xs font-bold text-slate-700 flex items-start gap-2"><span>•</span> {w}</li>)}
                            </ul>
                         </div>
                       </div>
                     )}
 
                     {recommendation && (
-                      <div className="p-6 bg-slate-50 rounded-2xl border border-slate-100 italic font-bold text-[#0d333f] text-sm leading-relaxed text-center">
-                        "{recommendation}"
+                      <div className="p-8 bg-[#0d333f] text-white rounded-[2rem] text-center">
+                         <h6 className="text-[9px] font-black text-moe-teal uppercase tracking-widest mb-2">التوصية المهنية النهائية:</h6>
+                         <p className="text-sm font-bold italic leading-relaxed">"{recommendation}"</p>
                       </div>
                     )}
                   </div>
 
                   <div className="grid grid-cols-2 gap-4 no-print">
                     {!isViewOnly && (
-                      <button onClick={saveEvaluation} disabled={isSaving} className="py-6 bg-[#0d333f] text-white rounded-[1.8rem] font-black shadow-xl hover:brightness-125 transition-all">
-                        {isSaving ? 'جاري الحفظ...' : 'اعتماد التقييم نهائياً'}
+                      <button onClick={saveEvaluation} disabled={isSaving} className="py-6 bg-[#0d333f] text-white rounded-[1.8rem] font-black shadow-xl">
+                        {isSaving ? 'جاري الحفظ...' : 'اعتماد التقرير'}
                       </button>
                     )}
-                    <button onClick={() => window.print()} className="py-6 bg-white border-2 border-slate-100 text-[#0d333f] rounded-[1.8rem] font-black hover:bg-slate-50 transition-all">
-                      🖨️ طباعة محضر التقييم
+                    <button onClick={() => window.print()} className="py-6 bg-white border-2 border-slate-100 text-[#0d333f] rounded-[1.8rem] font-black">
+                      🖨️ طباعة المحضر
                     </button>
                   </div>
                 </div>
