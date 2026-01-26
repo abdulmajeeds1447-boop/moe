@@ -4,7 +4,7 @@ import { getDriveFiles } from '../../../lib/drive';
 import { GoogleGenAI, Type } from "@google/genai";
 import { Buffer } from 'buffer';
 
-export const maxDuration = 60; // زيادة وقت التنفيذ لـ 60 ثانية
+export const maxDuration = 60;
 
 export async function POST(req: Request) {
   try {
@@ -26,11 +26,10 @@ export async function POST(req: Request) {
     }
 
     if (!driveFiles || driveFiles.length === 0) {
-      return NextResponse.json({ error: 'المجلد فارغ من الشواهد المدعومة (PDF/صور).' }, { status: 404 });
+      return NextResponse.json({ error: 'المجلد فارغ تماماً من الشواهد.' }, { status: 404 });
     }
 
-    // تقليل عدد الملفات إلى 8 لضمان استقرار الاستجابة وعدم حدوث ضغط على الذاكرة
-    const limitedFiles = driveFiles.slice(0, 8);
+    const limitedFiles = driveFiles.slice(0, 10);
     const promptParts: any[] = [];
     
     for (const file of limitedFiles) {
@@ -38,33 +37,52 @@ export async function POST(req: Request) {
       promptParts.push({
         inlineData: { data: base64Data, mimeType: file.mimeType }
       });
-      promptParts.push({ text: `وثيقة: ${file.name}\n` });
+      promptParts.push({ text: `[اسم الملف: ${file.name}]\n` });
     }
 
     const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
     
     const systemInstruction = `
-أنت خبير تربوي ومحلل بيانات تعمل لصالح مدير المدرسة "نايف أحمد الشهري". 
-مهمتك: تحليل شواهد المعلمين وتقديم تقييم رقمي مئوي دقيق بناءً على المعايير الـ 11.
+أنت "مدقق جودة تعليمي" صارم جداً. مهمتك هي مراجعة شواهد المعلم المرفقة بدقة متناهية.
+لا تمنح أي درجة بناءً على التوقعات؛ اعتمد فقط على ما تراه في الملفات المرسلة.
 
-الأوزان المعتمدة (المجموع 100%):
-- المعايير (1، 2، 3، 4، 5، 6، 7، 10، 11): وزن كل معيار منها 10% من الدرجة الإجمالية.
-- المعايير (8، 9): وزن كل معيار منها 5% فقط من الدرجة الإجمالية.
+قواعد التقييم الصارمة:
+1. أي معيار لا يوجد له ملف "شاهد" واضح يثبت إنجازه، يجب أن تكون درجته (0) من 5.
+2. لا تكرر استخدام نفس الملف لجميع المعايير إلا إذا كان الملف يحتوي فعلياً على بيانات متعددة الجوانب.
+3. توزيع الأوزان (المجموع 100%):
+   - المعايير (1,2,3,4,5,6,7,10,11): وزن المعيار 10%. (الدرجة 5 تعني 10%).
+   - المعايير (8,9): وزن المعيار 5%. (الدرجة 5 تعني 5%).
 
-امنح درجة من (0 إلى 5) لكل معيار.
-يجب أن يكون الرد بصيغة JSON فقط:
+المعايير الـ 11 المطلوب فحصها:
+1. أداء الواجبات الوظيفية.
+2. التفاعل مع المجتمع.
+3. التفاعل مع أولياء الأمور.
+4. التنويع في استراتيجيات التدريس.
+5. تحسين نتائج المتعلمين.
+6. إعداد وتنفيذ خطة التعلم.
+7. توظيف تقنيات ووسائل التعلم.
+8. تهيئة البيئة التعليمية.
+9. الإدارة الصفية.
+10. تحليل نتائج المتعلمين.
+11. تنوع أساليب التقويم.
+
+في قسم "justification"، يجب أن تذكر صراحة: "لم يتم العثور على شواهد للمعيار X و Y ولذلك تم منحهم صفر"، و"تم العثور على ملف [اسم الملف] كشاهد للمعيار Z".
+
+يجب أن يكون الرد JSON حصراً:
 {
-  "suggested_scores": { "1": 5, "2": 4, ..., "11": 5 },
-  "justification": "تحليل تربوي مفصل ومقنع"
+  "suggested_scores": { "1": 0, "2": 0, "3": 0, "4": 0, "5": 0, "6": 0, "7": 0, "8": 0, "9": 0, "10": 0, "11": 0 },
+  "justification": "تقرير التدقيق الصارم..."
 }
     `;
 
+    // استخدام gemini-3-pro-preview لضمان أعلى دقة في التدقيق
     const response = await ai.models.generateContent({
-      model: 'gemini-3-flash-preview',
+      model: 'gemini-3-pro-preview',
       contents: [{ parts: promptParts }],
       config: {
         systemInstruction: systemInstruction,
         responseMimeType: 'application/json',
+        temperature: 0.1, // تقليل العشوائية لأدنى حد لضمان الصرامة
         responseSchema: {
           type: Type.OBJECT,
           properties: {
@@ -85,17 +103,10 @@ export async function POST(req: Request) {
     });
 
     const text = response.text;
-    if (!text) throw new Error('Model returned empty response');
-    
-    return NextResponse.json(JSON.parse(text));
+    return NextResponse.json(JSON.parse(text || '{}'));
 
   } catch (error: any) {
-    console.error("Critical AI Error:", error);
-    // إرسال كود الحالة الأصلي إذا كان 503 أو 429 ليفهمه نظام المحاولات التلقائية في الواجهة
-    const status = (error.message?.includes('503') || error.status === 503) ? 503 : 500;
-    return NextResponse.json({ 
-      error: 'فشل التحليل الذكي', 
-      details: error.message || 'خطأ غير معروف' 
-    }, { status });
+    console.error("Audit Error:", error);
+    return NextResponse.json({ error: 'فشل التدقيق الذكي', details: error.message }, { status: 500 });
   }
 }
