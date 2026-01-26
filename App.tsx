@@ -1,10 +1,11 @@
+
 import React, { useState, useEffect } from 'react';
-import { Profile } from './types.ts';
-import Login from './components/Login.tsx';
-import TeacherDashboard from './components/TeacherDashboard.tsx';
-import AdminDashboard from './components/AdminDashboard.tsx';
-import Header from './components/Header.tsx';
-import { supabase } from './services/supabaseClient.ts';
+import { Profile } from './types';
+import Login from './components/Login';
+import TeacherDashboard from './components/TeacherDashboard';
+import AdminDashboard from './components/AdminDashboard';
+import Header from './components/Header';
+import { supabase } from './services/supabaseClient';
 
 const App: React.FC = () => {
   const [user, setUser] = useState<Profile | null>(null);
@@ -54,26 +55,35 @@ const App: React.FC = () => {
       
       <footer className="bg-white border-t border-slate-100 py-12 mt-20 no-print">
         <div className="container mx-auto px-4 flex flex-col items-center">
+          
+          {/* تصميم حقوق الأستاذ عبدالله الشهري - أيقوني وإبداعي */}
           <div className="group flex flex-col items-center cursor-default">
             <div className="flex items-center gap-4 mb-6">
+              {/* أيقونة برمجية متحركة بدلاً من الصور المعطلة */}
               <div className="w-14 h-14 bg-[#009688]/10 rounded-2xl flex items-center justify-center text-[#009688] transition-all duration-500 group-hover:bg-[#009688] group-hover:text-white group-hover:rotate-[360deg] shadow-sm">
                 <svg className="w-7 h-7" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M10 20l4-16m4 4l4 4-4 4M6 16l-4-4 4-4"></path>
                 </svg>
               </div>
+              
               <div className="flex flex-col">
                 <span className="text-[10px] font-black text-[#009688] uppercase tracking-[0.3em] mb-1">Creative Tech</span>
                 <span className="text-xl font-black text-[#0d333f] group-hover:text-[#009688] transition-colors duration-300">تصميم الأستاذ: عبدالله الشهري</span>
               </div>
             </div>
+
+            {/* شريط الهوية الملون */}
             <div className="relative w-64 h-1 bg-slate-100 rounded-full overflow-hidden mb-6">
               <div className="absolute inset-0 bg-gradient-to-r from-transparent via-[#009688] to-transparent w-full -translate-x-full group-hover:translate-x-full transition-transform duration-1000"></div>
             </div>
+
+            {/* نصوص إضافية توضح التبعية المدرسية */}
             <div className="flex items-center gap-3 text-slate-400 font-bold text-xs mb-4">
               <span>ثانوية الأمير عبدالمجيد الأولى</span>
               <span className="w-1 h-1 bg-slate-300 rounded-full"></span>
               <span>الإدارة العامة للتعليم بجدة</span>
             </div>
+            
             <p className="text-[10px] text-slate-300 font-medium">حقوق الملكية الفكرية والتقنية © {new Date().getFullYear()}</p>
           </div>
         </div>

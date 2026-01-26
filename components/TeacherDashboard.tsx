@@ -1,9 +1,10 @@
+
 'use client';
 
 import React, { useState, useEffect } from 'react';
-import { Profile, Submission } from '../types.ts';
-import { supabase } from '../services/supabaseClient.ts';
-import EvaluationModal from './EvaluationModal.tsx';
+import { Profile, Submission } from '../types';
+import { supabase } from '../services/supabaseClient';
+import EvaluationModal from './EvaluationModal';
 
 interface TeacherDashboardProps { user: Profile; }
 
@@ -107,18 +108,17 @@ const TeacherDashboard: React.FC<TeacherDashboardProps> = ({ user }) => {
 
   return (
     <div className="max-w-6xl mx-auto space-y-10 pb-20 animate-in fade-in duration-700">
-      
-      {/* المنصة الخارجية لإعداد التقارير */}
+     {/* المنصة الخارجية لإعداد التقارير */}
       <div className="bg-moe-teal rounded-[3rem] p-1 shadow-2xl overflow-hidden no-print">
         <div className="bg-moe-teal p-8 md:p-12 text-white relative">
           <div className="flex flex-col md:flex-row items-center justify-between gap-8 relative z-10">
             <div className="flex-1 space-y-6">
               <div className="inline-block px-4 py-1.5 bg-white text-moe-teal rounded-full text-[10px] font-black uppercase tracking-wider shadow-sm">
-                الموقع المعتمد
+                الموقع المساعد
               </div>
               <h2 className="text-4xl font-black leading-tight">المنصة الخارجية لإعداد التقارير</h2>
               <p className="text-base opacity-90 font-bold leading-relaxed max-w-2xl">
-                استخدم هذه المنصة لتوليد تقاريرك المهنية بشكل آلي وذكي وفق معايير الجودة التعليمية.
+                استخدم هذه المنصة لتوليد تقاريرك المهنية وفق معايير الجودة التعليمية.
               </p>
               
               <div className="bg-black/10 backdrop-blur-sm p-6 rounded-3xl border border-white/10 space-y-4">
@@ -134,6 +134,31 @@ const TeacherDashboard: React.FC<TeacherDashboardProps> = ({ user }) => {
                   </div>
                 </div>
               </div>
+
+              {/* --- إضافة صورة ملاحظة الوصول العام هنا بشكل احترافي --- */}
+              <div className="bg-white/95 rounded-3xl p-6 border-2 border-dashed border-moe-teal/30 shadow-lg mt-6 transform hover:scale-[1.01] transition-all duration-300">
+                <div className="flex flex-col md:flex-row items-center gap-6">
+                   <div className="flex-1 space-y-2 text-center md:text-right">
+                      <div className="flex items-center gap-2 justify-center md:justify-start">
+                         <span className="text-2xl animate-pulse">🔐</span>
+                         <h3 className="text-lg font-black text-moe-navy">تنبيه أمني هام جداً!</h3>
+                      </div>
+                      <p className="text-xs font-bold text-slate-600 leading-relaxed">
+                         لضمان نجاح التحليل ، يجب التأكد من ضبط إعدادات المشاركة للمجلد في Google Drive لتكون: <br/>
+                         <span className="text-red-500 font-black underline decoration-wavy decoration-red-200">"أي شخص لديه الرابط" (Anyone with the link)</span>
+                      </p>
+                   </div>
+                   <div className="shrink-0">
+                      <img 
+                        src="/drive.png" 
+                        alt="إعدادات الوصول في قوقل درايف" 
+                        className="h-20 w-auto object-contain rounded-xl border border-slate-200 shadow-sm" 
+                      />
+                   </div>
+                </div>
+              </div>
+              {/* ---------------------------------------------------- */}
+
             </div>
 
             <a 
@@ -158,7 +183,7 @@ const TeacherDashboard: React.FC<TeacherDashboardProps> = ({ user }) => {
            </div>
            <div>
              <h3 className="text-2xl font-black text-moe-navy">
-               {editingId ? 'تعديل بيانات الملف الرقمي' : 'إدراج رابط الشواهد الجديد'}
+               {editingId ? 'تعديل بيانات الملف الرقمي' : 'إدراج رابط الشواهد '}
              </h3>
              <p className="text-xs text-slate-400 font-bold mt-1">
                {editingId ? 'قم بتحديث البيانات المطلوبة ثم اضغط حفظ' : 'تأكد من اكتمال كافة التقارير داخل المجلد قبل الإرسال'}
@@ -173,7 +198,7 @@ const TeacherDashboard: React.FC<TeacherDashboardProps> = ({ user }) => {
                type="text" 
                value={subject} 
                onChange={e => setSubject(e.target.value)}
-               placeholder="مثال: لغتي - المرحلة المتوسطة"
+               placeholder="مثال: تقنية رقمية - المرحلة الثانوية"
                className="w-full px-8 py-5 bg-slate-50 rounded-2xl border-2 border-transparent outline-none focus:border-moe-teal/20 focus:bg-white focus:ring-4 focus:ring-moe-teal/5 font-bold text-slate-700 transition-all text-sm"
              />
           </div>
