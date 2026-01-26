@@ -13,7 +13,7 @@ interface EvaluationModalProps {
 const EvaluationModal: React.FC<EvaluationModalProps> = ({ submission, onClose, isViewOnly = false }) => {
   const [justification, setJustification] = useState('');
   const [isAnalyzing, setIsAnalyzing] = useState(false);
-  const [progress, setProgress] = useState({ current: 0, total: 0, status: '', step: 1 });
+  const [progress, setProgress] = useState({ current: 0, total: 0, status: '', step: 1, isCoolingDown: false });
   const [isSaving, setIsSaving] = useState(false);
   
   const [scores, setScores] = useState<Record<number, number>>({
@@ -57,50 +57,58 @@ const EvaluationModal: React.FC<EvaluationModalProps> = ({ submission, onClose, 
   const totalScore = calculateTotal();
   const gradeInfo = getGradeInfo(totalScore);
 
-  // وظائف مساعدة لحل مشكلة الـ 429 (الحد الأقصى)
+  // وظائف التحكم في الضغط (Rate Limit Handling)
   const delay = (ms: number) => new Promise(res => setTimeout(res, ms));
 
-  const fetchWithRetry = async (url: string, options: any, retries = 5): Promise<any> => {
+  const fetchWithRetry = async (url: string, options: any, retries = 3): Promise<any> => {
     const res = await fetch(url, options);
+    
     if (res.status === 429) {
       if (retries > 0) {
-        setProgress(p => ({ ...p, status: 'تهدئة السرعة قليلاً لتجنب قيود قوقل.. سأكمل خلال 10 ثوانٍ...' }));
-        await delay(10000); // انتظار أطول عند حدوث الخطأ
+        setProgress(p => ({ ...p, isCoolingDown: true, status: 'تجاوزنا سرعة التحليل المسموحة.. جاري الانتظار 20 ثانية للتبريد...' }));
+        await delay(20000); // انتظار طويل عند حدوث 429
+        setProgress(p => ({ ...p, isCoolingDown: false }));
         return fetchWithRetry(url, options, retries - 1);
       }
-      throw new Error("عذراً، تم الوصول للحد الأقصى. يرجى الانتظار دقيقة واحدة ثم المحاولة مرة أخرى.");
+      throw new Error("عذراً، الخادم مزدحم جداً. يرجى الانتظار دقيقة والمحاولة لاحقاً.");
     }
-    if (!res.ok) throw new Error("فشل الاتصال بسيرفر التحليل الرقمي");
+
+    if (!res.ok) {
+      const errorData = await res.json().catch(() => ({}));
+      throw new Error(errorData.error || "فشل في معالجة الطلب.");
+    }
+
     return res.json();
   };
 
   const runAIAnalysis = async () => {
     if (isViewOnly) return;
     setIsAnalyzing(true);
-    setProgress({ current: 0, total: 0, status: 'جاري فحص مجلد الشواهد من قوقل درايف...', step: 1 });
+    setProgress({ current: 0, total: 0, status: 'جاري فحص المجلد والمجلدات الفرعية...', step: 1, isCoolingDown: false });
 
     try {
-      // المرحلة 1: مسح المجلد وجلب قائمة الملفات
+      // المرحلة 1: مسح كافة الملفات (بما في ذلك المجلدات الفرعية)
       const scanRes = await fetch('/api/drive/scan', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ link: submission.drive_link })
       });
       const scanData = await scanRes.json();
-      const files = scanData.files || [];
-      
-      if (files.length === 0) throw new Error("لم يتم العثور على أي ملفات (PDF أو صور) داخل المجلد المرفق.");
+      if (!scanRes.ok) throw new Error(scanData.error || "فشل مسح المجلد");
 
-      // المرحلة 2: تحليل الملفات تتابعياً (ملف ملف) مع فترات انتظار
-      let allEvidenceFindings = "";
-      setProgress({ current: 0, total: files.length, status: `تم العثور على ${files.length} شواهد. جاري قراءتها بهدوء...`, step: 2 });
+      const files = scanData.files || [];
+      if (files.length === 0) throw new Error("لم نجد أي ملفات مدعومة داخل المجلد المرفق.");
+
+      // المرحلة 2: التحليل التتابعي مع فواصل زمنية
+      let allEvidence = "";
+      setProgress({ current: 0, total: files.length, status: `تم اكتشاف ${files.length} ملفات. جاري التحليل التتابعي...`, step: 2, isCoolingDown: false });
 
       for (let i = 0; i < files.length; i++) {
         const file = files[i];
-        setProgress(p => ({ ...p, current: i + 1, status: `جاري تحليل الشاهد رقم ${i+1}: ${file.name}...` }));
+        setProgress(p => ({ ...p, current: i + 1, status: `تحليل الشاهد (${i+1} من ${files.length}): ${file.name}...` }));
         
-        // تريث لمدة 4 ثوانٍ بين كل ملف لتجنب ضغط الطلبات 429
-        if (i > 0) await delay(4000);
+        // تريث إجباري (6 ثوانٍ) لمنع الخطأ 429
+        if (i > 0) await delay(6000);
 
         const data = await fetchWithRetry('/api/analyze', {
           method: 'POST',
@@ -109,36 +117,34 @@ const EvaluationModal: React.FC<EvaluationModalProps> = ({ submission, onClose, 
         });
         
         if (data.findings) {
-          allEvidenceFindings += `[شاهد: ${file.name}]\n${data.findings}\n\n`;
+          allEvidence += `[شاهد: ${file.name}]\n${data.findings}\n\n`;
         }
       }
 
-      // المرحلة 3: إصدار التقييم النهائي والمبررات
-      setProgress(p => ({ ...p, status: 'جاري صياغة المحضر والدرجات المستحقة بناءً على الشواهد المقروءة...', step: 3 }));
-      await delay(2000);
+      // المرحلة 3: استخراج النتيجة النهائية
+      setProgress(p => ({ ...p, status: 'جاري صياغة المحضر النهائي والدرجات المستحقة...', step: 3, isCoolingDown: false }));
+      await delay(3000);
 
       const finalResult = await fetchWithRetry('/api/analyze', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ mode: 'final', previousFindings: allEvidenceFindings })
+        body: JSON.stringify({ mode: 'final', previousFindings: allEvidence })
       });
 
       if (finalResult.scores) {
-        // تحديث الدرجات في الواجهة
         const newScores: Record<number, number> = {};
         Object.entries(finalResult.scores).forEach(([k, v]) => newScores[Number(k)] = Number(v));
         setScores(newScores);
 
-        // بناء النص الكامل للمبررات
         const fullReport = `المبررات: ${(finalResult.justifications || []).join(' | ')}\nنقاط القوة: ${(finalResult.strengths || []).join(', ')}\nنقاط التطوير: ${(finalResult.weaknesses || []).join(', ')}\nالتوصية: ${finalResult.recommendation || ''}`;
         setJustification(fullReport);
       }
 
     } catch (err: any) {
-      alert(`عذراً، فشل التحليل: ${err.message}`);
+      alert(`تنبيه: ${err.message}`);
     } finally {
       setIsAnalyzing(false);
-      setProgress({ current: 0, total: 0, status: '', step: 1 });
+      setProgress({ current: 0, total: 0, status: '', step: 1, isCoolingDown: false });
     }
   };
 
@@ -182,7 +188,6 @@ const EvaluationModal: React.FC<EvaluationModalProps> = ({ submission, onClose, 
   return (
     <div className="fixed inset-0 z-[200] flex items-center justify-center p-4 bg-slate-900/95 backdrop-blur-lg overflow-y-auto">
       
-      {/* --- تنسيق الطباعة الرسمي --- */}
       <style type="text/css" media="print">
         {`
           @page { size: A4; margin: 0; }
@@ -234,14 +239,14 @@ const EvaluationModal: React.FC<EvaluationModalProps> = ({ submission, onClose, 
                <tbody>
                  <tr><td className="py-1 font-bold w-20 border-0">اسم المعلم:</td><td className="border-0">{submission.teacher?.full_name}</td></tr>
                  <tr><td className="py-1 font-bold border-0">المادة:</td><td className="border-0">{submission.subject}</td></tr>
-                 <tr><td className="py-1 font-bold border-0">المقيم:</td><td className="border-0">مدير المدرسة (نايف الشهري)</td></tr>
+                 <tr><td className="py-1 font-bold border-0">المقيم:</td><td className="border-0 text-slate-500">مدير المدرسة (نايف الشهري)</td></tr>
                </tbody>
              </table>
           </div>
-          <div className="w-32 border-2 border-black rounded-lg flex flex-col items-center justify-center bg-slate-50 p-2">
-             <p className="text-[9px] font-bold text-center">الدرجة المستحقة</p>
-             <h2 className="text-3xl font-black my-1 text-center">{totalScore}</h2>
-             <p className="text-[9px] font-bold text-center">{gradeInfo.label}</p>
+          <div className="w-32 border-2 border-black rounded-lg flex flex-col items-center justify-center bg-slate-50 p-2 text-center">
+             <p className="text-[9px] font-bold">الدرجة</p>
+             <h2 className="text-3xl font-black">{totalScore}</h2>
+             <p className="text-[9px] font-bold">{gradeInfo.label}</p>
           </div>
         </div>
 
@@ -257,47 +262,43 @@ const EvaluationModal: React.FC<EvaluationModalProps> = ({ submission, onClose, 
             </thead>
             <tbody>
               {EVALUATION_CRITERIA.map((c, idx) => {
-                const rawScore = Number(scores[c.id] || 0);
-                const weightedScore = (rawScore / 5) * c.weight;
+                const weightedScore = (Number(scores[c.id] || 0) / 5) * c.weight;
                 return (
                   <tr key={c.id}>
-                    <td className="font-bold bg-slate-50">{idx + 1}</td>
+                    <td className="font-bold">{idx + 1}</td>
                     <td className="text-right px-2 font-semibold">{c.label}</td>
                     <td>{c.weight}</td>
-                    <td className="font-black bg-slate-50">
-                       {Number.isInteger(weightedScore) ? weightedScore : weightedScore.toFixed(1)}
-                    </td>
+                    <td className="font-black bg-slate-50">{Number.isInteger(weightedScore) ? weightedScore : weightedScore.toFixed(1)}</td>
                   </tr>
                 );
               })}
               <tr className="bg-slate-200 font-black h-8 border-t-2 border-black">
                 <td colSpan={2} className="text-right px-2">المجموع الكلي</td>
                 <td>100</td>
-                <td className="text-[12px]">{totalScore}</td>
+                <td>{totalScore}</td>
               </tr>
             </tbody>
           </table>
         </div>
 
         <div className="print-box h-28 mb-2 relative shrink-0">
-           <h3 className="font-black text-[10px] border-b border-black inline-block mb-1">رأي الخبير التربوي وملاحظات التحسين:</h3>
-           <p className="text-[9px] leading-relaxed text-justify whitespace-pre-wrap absolute inset-2 top-8 overflow-hidden">
-             {justification || 'لا توجد ملاحظات إضافية.'}
+           <h3 className="font-black text-[10px] border-b border-black inline-block mb-1">المبررات والتوصيات:</h3>
+           <p className="text-[9px] leading-relaxed text-justify whitespace-pre-wrap">
+             {justification || 'سيتم إدراج المبررات آلياً.'}
            </p>
         </div>
 
         <div className="flex justify-between items-end mt-auto px-6 pb-2 shrink-0">
           <div className="text-center w-40">
             <p className="font-bold text-[10px] mb-6">توقيع المعلم/ة</p>
-            <div className="border-t border-dotted border-black pt-1 text-center">
+            <div className="border-t border-dotted border-black pt-1">
               <p className="text-[9px]">{submission.teacher?.full_name}</p>
             </div>
           </div>
           <div className="text-center w-40">
             <p className="font-bold text-[10px] mb-6">اعتماد مدير المدرسة</p>
-            <div className="border-t border-dotted border-black pt-1 text-center">
+            <div className="border-t border-dotted border-black pt-1">
               <p className="font-black text-[10px]">نايف أحمد الشهري</p>
-              <p className="text-[8px] mt-1 text-gray-500">وثيقة رقمية معتمدة</p>
             </div>
           </div>
         </div>
@@ -306,34 +307,24 @@ const EvaluationModal: React.FC<EvaluationModalProps> = ({ submission, onClose, 
       {/* --- الواجهة التفاعلية --- */}
       <div className="print:hidden bg-white w-full max-w-6xl rounded-[3rem] shadow-2xl flex flex-col max-h-[96vh] overflow-hidden relative">
         
-        {/* واجهة التقدم الاحترافية */}
+        {/* شاشة التحليل والانتظار */}
         {isAnalyzing && (
-          <div className="absolute inset-0 z-[300] bg-moe-navy/98 backdrop-blur-xl flex flex-col items-center justify-center text-center p-12 text-white">
-             <div className="w-40 h-40 border-8 border-white/5 rounded-full flex items-center justify-center relative mb-12 shadow-[0_0_80px_rgba(0,150,136,0.4)]">
-                <div className="absolute inset-0 border-8 border-moe-teal border-t-transparent rounded-full animate-spin"></div>
-                <span className="text-6xl drop-shadow-2xl">🔎</span>
+          <div className="absolute inset-0 z-[300] bg-moe-navy/95 backdrop-blur-md flex flex-col items-center justify-center text-center p-12 text-white">
+             <div className="w-32 h-32 border-8 border-white/5 rounded-full flex items-center justify-center relative mb-8 shadow-xl">
+                <div className={`absolute inset-0 border-8 ${progress.isCoolingDown ? 'border-amber-500' : 'border-moe-teal'} border-t-transparent rounded-full animate-spin transition-colors`}></div>
+                <span className="text-5xl">{progress.isCoolingDown ? '⏳' : '🔍'}</span>
              </div>
-             
-             <h2 className="text-4xl font-black mb-6">
-                {progress.step === 1 ? 'جاري فحص المجلد...' : progress.step === 2 ? 'المحلل يقرأ الشواهد...' : 'اعتماد التقرير المهني...'}
+             <h2 className="text-3xl font-black mb-4">
+                {progress.isCoolingDown ? 'وضع التبريد الذكي...' : progress.step === 1 ? 'جاري جلب الملفات...' : 'يتم تحليل الشواهد الآن...'}
              </h2>
-             
-             <div className="bg-white/10 px-10 py-6 rounded-[2.5rem] border border-white/10 mb-10 max-w-2xl shadow-2xl backdrop-blur-md">
-                <p className="text-moe-teal text-xl font-bold animate-pulse leading-relaxed">
-                  {progress.status}
-                </p>
+             <div className={`px-8 py-4 rounded-3xl border border-white/10 mb-8 max-w-lg ${progress.isCoolingDown ? 'bg-amber-500/10' : 'bg-white/10'}`}>
+                <p className={`text-lg font-bold animate-pulse ${progress.isCoolingDown ? 'text-amber-400' : 'text-moe-teal'}`}>{progress.status}</p>
              </div>
-             
-             <div className="w-full max-w-md bg-white/5 h-6 rounded-full overflow-hidden p-1.5 border border-white/10">
+             <div className="w-full max-w-md bg-white/5 h-4 rounded-full overflow-hidden p-1">
                 <div 
-                  className="bg-gradient-to-r from-moe-teal to-emerald-400 h-full rounded-full transition-all duration-1000 shadow-[0_0_20px_rgba(0,150,136,0.6)]" 
+                  className={`h-full rounded-full transition-all duration-1000 ${progress.isCoolingDown ? 'bg-amber-500' : 'bg-moe-teal'}`} 
                   style={{ width: `${(progress.current / (progress.total || 1)) * 100}%` }} 
                 />
-             </div>
-             
-             <div className="mt-16 space-y-3 opacity-50">
-                <p className="text-sm font-bold italic tracking-widest text-moe-teal">نظام التحليل التتابعي الذكي - ثانوية الأمير عبدالمجيد</p>
-                <p className="text-xs">نقوم بالتحليل بهدوء لضمان دقة النتيجة وعدم تجاوز حدود الخدمة المجانية</p>
              </div>
           </div>
         )}
@@ -346,7 +337,7 @@ const EvaluationModal: React.FC<EvaluationModalProps> = ({ submission, onClose, 
               <p className="text-[10px] text-moe-teal font-bold tracking-widest">إشراف: نايف أحمد الشهري</p>
             </div>
           </div>
-          <button onClick={onClose} className="w-10 h-10 rounded-full hover:bg-white/10 flex items-center justify-center text-2xl transition-colors">✕</button>
+          <button onClick={onClose} className="w-10 h-10 rounded-full hover:bg-white/10 flex items-center justify-center text-2xl">✕</button>
         </div>
 
         <div className="flex-1 overflow-y-auto p-10 bg-slate-50/50">
@@ -356,7 +347,7 @@ const EvaluationModal: React.FC<EvaluationModalProps> = ({ submission, onClose, 
               <h3 className="text-[11px] font-black text-slate-400 uppercase tracking-widest mb-2">تقدير المعايير (0-5)</h3>
               <div className="grid gap-2">
                 {EVALUATION_CRITERIA.map(c => (
-                  <div key={c.id} className="p-3.5 bg-white rounded-xl border border-slate-100 flex justify-between items-center group hover:border-moe-teal transition-all shadow-sm">
+                  <div key={c.id} className="p-3.5 bg-white rounded-xl border border-slate-100 flex justify-between items-center group hover:border-moe-teal shadow-sm">
                     <div className="flex flex-col">
                       <span className="text-[11px] font-black text-slate-700">{c.label}</span>
                       <span className="text-[9px] text-slate-400 font-bold">الوزن: {c.weight}%</span>
@@ -365,7 +356,7 @@ const EvaluationModal: React.FC<EvaluationModalProps> = ({ submission, onClose, 
                       disabled={isViewOnly}
                       value={scores[c.id]} 
                       onChange={e => setScores(p => ({...p, [c.id]: parseInt(e.target.value)}))}
-                      className="bg-slate-50 px-3 py-1 rounded-lg text-xs font-black text-moe-teal outline-none focus:ring-2 focus:ring-moe-teal/20"
+                      className="bg-slate-50 px-3 py-1 rounded-lg text-xs font-black text-moe-teal outline-none border border-slate-200"
                     >
                       {[5,4,3,2,1,0].map(v => <option key={v} value={v}>{v}</option>)}
                     </select>
@@ -375,63 +366,36 @@ const EvaluationModal: React.FC<EvaluationModalProps> = ({ submission, onClose, 
             </div>
 
             <div className="space-y-8">
-              <div className="bg-gradient-to-br from-moe-navy to-moe-teal p-8 rounded-[2.5rem] text-white shadow-xl relative overflow-hidden flex flex-col items-center text-center justify-center gap-4">
-                <div className="relative z-10">
-                  <h4 className="text-8xl font-black tracking-tighter drop-shadow-lg">{totalScore}%</h4>
-                </div>
-                <div className="w-full h-0.5 bg-white/20 rounded-full max-w-[200px]"></div>
-                <div className="flex flex-col items-center gap-1 z-10">
-                  <div className="bg-white/10 backdrop-blur-md px-6 py-2 rounded-2xl border border-white/10 mb-2">
-                    <p className="text-sm font-bold opacity-90">المعدل: <span className="text-xl font-black text-white mx-1">{gradeInfo.value}</span> من 5</p>
-                  </div>
-                  <h3 className={`text-3xl font-black ${gradeInfo.color} drop-shadow-md mt-1`}>
-                    {gradeInfo.label}
-                  </h3>
+              <div className="bg-gradient-to-br from-moe-navy to-moe-teal p-8 rounded-[2.5rem] text-white shadow-xl flex flex-col items-center justify-center gap-4">
+                <h4 className="text-8xl font-black tracking-tighter drop-shadow-lg">{totalScore}%</h4>
+                <div className={`px-6 py-2 rounded-2xl border border-white/10 ${gradeInfo.color} bg-white font-black text-sm`}>
+                  {gradeInfo.label}
                 </div>
               </div>
 
               <div className="grid grid-cols-2 gap-4">
-                  <a 
-                    href={submission.drive_link} 
-                    target="_blank" 
-                    rel="noopener noreferrer"
-                    className="col-span-2 py-4 bg-blue-50 text-blue-600 border-2 border-blue-100 rounded-2xl font-black transition-all hover:bg-blue-100 hover:border-blue-200 active:scale-95 flex items-center justify-center gap-2"
-                  >
-                    <span className="text-xl">📂</span>
-                    عرض مجلد الشواهد (Drive)
+                  <a href={submission.drive_link} target="_blank" className="col-span-2 py-4 bg-blue-50 text-blue-600 border-2 border-blue-100 rounded-2xl font-black text-center">
+                    📂 عرض مجلد الشواهد (Drive)
                   </a>
 
                   {!isViewOnly && (
                     <>
-                      <button 
-                        onClick={runAIAnalysis} 
-                        className="col-span-2 py-5 bg-white border-2 border-moe-teal text-moe-teal rounded-2xl font-black hover:bg-moe-teal hover:text-white transition-all shadow-md active:scale-95"
-                      >
-                        ⚡ بدء التحليل التتابعي الذكي (AI)
+                      <button onClick={runAIAnalysis} className="col-span-2 py-5 bg-moe-teal text-white rounded-2xl font-black shadow-lg">
+                        ⚡ بدء التحليل التتابعي الهادئ (AI)
                       </button>
-                      
-                      <button onClick={saveEvaluation} disabled={isSaving} className="py-5 bg-moe-navy text-white rounded-2xl font-black shadow-lg hover:brightness-110 active:scale-95">
+                      <button onClick={saveEvaluation} disabled={isSaving} className="py-5 bg-moe-navy text-white rounded-2xl font-black shadow-lg">
                         {isSaving ? 'جاري الحفظ...' : 'اعتماد الدرجات'}
                       </button>
-
-                      <button onClick={sendWhatsApp} className="py-5 bg-[#25D366] text-white rounded-2xl font-black shadow-lg hover:bg-[#20bd5a] transition-all flex items-center justify-center gap-2 active:scale-95">
-                        واتساب
-                      </button>
-
-                      <button 
-                        onClick={handlePrint} 
-                        className="col-span-2 py-5 bg-slate-100 text-moe-navy border-2 border-slate-200 rounded-2xl font-black transition-all hover:bg-white active:scale-95 flex items-center justify-center gap-2"
-                      >
-                        📄 طباعة التقرير (A4)
-                      </button>
+                      <button onClick={sendWhatsApp} className="py-5 bg-[#25D366] text-white rounded-2xl font-black shadow-lg">واتساب</button>
+                      <button onClick={handlePrint} className="col-span-2 py-5 bg-slate-100 text-moe-navy rounded-2xl font-black">📄 طباعة التقرير (A4)</button>
                     </>
                   )}
               </div>
 
               <div className="bg-white p-6 rounded-[2.5rem] border border-slate-100 shadow-sm">
                 <h4 className="text-[11px] font-black text-slate-400 mb-4 uppercase">تبريرات التقييم:</h4>
-                <div className="w-full h-40 text-xs font-bold leading-relaxed bg-slate-50/50 p-4 rounded-xl overflow-y-auto whitespace-pre-wrap text-slate-700 border border-slate-100">
-                  {justification || 'سيقوم الخبير التربوي بكتابة التبريرات هنا...'}
+                <div className="w-full h-40 text-xs font-bold leading-relaxed bg-slate-50/50 p-4 rounded-xl overflow-y-auto whitespace-pre-wrap text-slate-700">
+                  {justification || 'سيتم إدراج المبررات هنا بعد إتمام التحليل...'}
                 </div>
               </div>
             </div>
