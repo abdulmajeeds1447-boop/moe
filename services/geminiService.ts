@@ -1,3 +1,4 @@
+
 export const analyzeTeacherReport = async (driveLink: string) => {
   try {
     const response = await fetch('/api/analyze', {
@@ -6,25 +7,27 @@ export const analyzeTeacherReport = async (driveLink: string) => {
       body: JSON.stringify({ link: driveLink }),
     });
 
-    const data = await response.json();
+    const result = await response.json();
 
     if (!response.ok) {
-      // إظهار التفاصيل القادمة من السيرفر (مثل تجاوز الحد)
-      throw new Error(data.details || data.error || 'فشل التحليل');
+      if (response.status === 429) {
+        throw new Error('عذراً، تم الوصول للحد الأقصى لطلبات التحليل المجانية المتاحة حالياً. يرجى الانتظار دقيقة واحدة ثم المحاولة مرة أخرى.');
+      }
+      const errorMessage = result.details ? `${result.error}: ${result.details}` : (result.error || 'فشل التحليل');
+      throw new Error(errorMessage);
     }
-
-    // إصلاح هيكلية البيانات للتأكد من أنها أرقام
-    if (data.suggested_scores) {
-       const fixedScores: Record<number, number> = {};
-       Object.keys(data.suggested_scores).forEach(key => {
-         fixedScores[Number(key)] = Number(data.suggested_scores[key] || 0);
-       });
-       data.suggested_scores = fixedScores;
+    
+    if (result.suggested_scores) {
+      const fixedScores: Record<number, number> = {};
+      for (let i = 1; i <= 11; i++) {
+        fixedScores[i] = Number(result.suggested_scores[i.toString()] || result.suggested_scores[i] || 0);
+      }
+      result.suggested_scores = fixedScores;
     }
-
-    return data; 
+    
+    return result;
   } catch (error: any) {
-    console.error('Gemini Service Error:', error);
-    throw new Error(error.message || 'حدث خطأ غير متوقع');
+    console.error("AI Analysis Client Error:", error);
+    throw error;
   }
 };
