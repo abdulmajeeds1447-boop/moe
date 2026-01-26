@@ -14,23 +14,20 @@ export async function POST(req: Request) {
       return NextResponse.json({ error: 'مفتاح API غير متوفر' }, { status: 500 });
     }
 
-    // 1. جلب الملفات من درايف
     const driveFiles = await getDriveFiles(link);
     if (!driveFiles || driveFiles.length === 0) {
       return NextResponse.json({ error: 'المجلد فارغ أو لا يمكن الوصول إليه' }, { status: 404 });
     }
 
-    // 2. معالجة واستخراج النصوص (تقليل الحجم بشكل ضخم)
-    // نكتفي بـ 5 ملفات لضمان عدم تجاوز حدود الحصة المجانية
-    const limitedFiles = driveFiles.slice(0, 5);
+    // تحليل أول 7 ملفات (لتحقيق توازن بين الدقة واستهلاك التوكنز في برو)
+    const limitedFiles = driveFiles.slice(0, 7);
     const promptParts: any[] = [];
     
     for (const file of limitedFiles) {
       const processed = await parseFileContent(file);
       if (processed) {
         if (processed.type === 'text') {
-          // إرسال النص فقط يوفر 90% من الحصة
-          promptParts.push({ text: `--- محتوى ملف (${processed.name}) ---\n${processed.content}\n` });
+          promptParts.push({ text: `--- ملف مستند (${processed.name}) ---\n${processed.content}\n` });
         } else if (processed.type === 'image') {
           promptParts.push({
             inlineData: { data: processed.content, mimeType: processed.mimeType }
@@ -42,31 +39,25 @@ export async function POST(req: Request) {
 
     const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
     
-    // استخدام gemini-flash-lite-latest لأنه يوفر أعلى معدل طلبات في الدقيقة (RPM) مجاناً
-    const modelName = 'gemini-flash-lite-latest';
+    // استخدام الموديل الأقوى للتحليل الاحترافي
+    const modelName = 'gemini-3-pro-preview';
     
     const systemInstruction = `
-أنت مدقق جودة تعليمي صارم.
-حلل الشواهد المرفقة (نصوص أو صور) وقارنها بالمعايير الـ 11 للأداء الوظيفي.
-القاعدة الصارمة: المعيار الذي لا تظهر له بينة واضحة في الملفات درجته 0.
+أنت الآن "خبير تدقيق جودة الأداء التعليمي" بوزارة التعليم. مهمتك فحص ملفات المعلم بصرامة متناهية.
 
-المعايير:
-1. الواجبات الوظيفية (10%)
-2. التفاعل مع المجتمع (10%)
-3. التفاعل مع أولياء الأمور (10%)
-4. استراتيجيات التدريس (10%)
-5. نتائج المتعلمين (10%)
-6. خطة التعلم (10%)
-7. تقنيات التعلم (10%)
-8. البيئة التعليمية (5%)
-9. الإدارة الصفية (5%)
-10. تحليل النتائج (10%)
-11. أساليب التقويم (10%)
+قواعد التدقيق الاحترافي:
+1. أي ملف يحتوي فقط على "جدول المعايير" أو "توصيف العناصر" هو (مرجع) وليس (شاهد). امنح درجة 0 فوراً للمعيار الذي لا يوجد له إلا توصيفه.
+2. الشاهد المقبول هو: (خطة درس منفذة، صورة فوتوغرافية لحدث صفّي، لقطة شاشة لرسائل مع أولياء الأمور، كشف درجات، تقرير نشاط موقع ومختوم).
+3. كن صريحاً ومهنياً: إذا كان المجلد يحتوي على أوراق فارغة أو مكررة، اذكر ذلك في التبرير.
+4. التبرير يجب أن يكون تقريراً رسمياً يذكر أسماء الملفات التي أثبتت كل معيار.
 
-الرد يجب أن يكون بصيغة JSON حصراً:
+المعايير الـ 11:
+(1: الواجبات، 2: المجتمع المهني، 3: أولياء الأمور، 4: استراتيجيات، 5: نتائج الطلاب، 6: خطة التعلم، 7: التقنية، 8: البيئة، 9: الإدارة الصفية، 10: تحليل النتائج، 11: التقويم).
+
+يجب أن يكون الرد JSON فقط بهذا الهيكل:
 {
-  "suggested_scores": {"1": 0, "2": 0, "3": 0, "4": 0, "5": 0, "6": 0, "7": 0, "8": 0, "9": 0, "10": 0, "11": 0},
-  "justification": "تقرير مفصل يوضح الشواهد التي تم العثور عليها وتلك المفقودة."
+  "suggested_scores": {"1": 0, "2": 0, ... "11": 0},
+  "justification": "تقرير التدقيق: \n- الملفات المكتشفة: [قائمة الأسماء]\n- الأدلة المثبتة: [اذكر ماذا وجدت ولمن]\n- النواقص: [ما الذي يفتقده المعلم لرفع درجته]\n- النتيجة النهائية: [تحليل احترافي قصير]"
 }
     `;
 
@@ -76,7 +67,8 @@ export async function POST(req: Request) {
       config: {
         systemInstruction: systemInstruction,
         responseMimeType: 'application/json',
-        temperature: 0.1,
+        temperature: 0.2, // منخفض لضمان الدقة والاتساق
+        thinkingConfig: { thinkingBudget: 4000 }, // تفعيل التفكير لتحليل الروابط المعقدة
         responseSchema: {
           type: Type.OBJECT,
           properties: {
@@ -98,15 +90,10 @@ export async function POST(req: Request) {
     return NextResponse.json(JSON.parse(response.text || '{}'));
 
   } catch (error: any) {
-    console.error("Critical Analysis Error:", error);
-    let errorMessage = 'حدث خطأ غير متوقع في التدقيق الذكي';
-    
-    if (error.message?.includes('429')) {
-      errorMessage = 'تم الوصول للحد الأقصى للطلبات المجانية. يرجى الانتظار دقيقة واحدة والمحاولة مجدداً.';
-    } else if (error.message?.includes('503')) {
-      errorMessage = 'خادم الذكاء الاصطناعي مشغول حالياً. جرب بعد لحظات.';
-    }
-
-    return NextResponse.json({ error: errorMessage, details: error.message }, { status: error.status || 500 });
+    console.error("Pro Analysis Error:", error);
+    return NextResponse.json({ 
+      error: 'فشل التدقيق الاحترافي', 
+      details: error.message 
+    }, { status: 500 });
   }
 }
