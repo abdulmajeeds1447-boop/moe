@@ -16,61 +16,68 @@ export async function getDriveFiles(folderUrl: string) {
 
   const drive = google.drive({ version: 'v3', auth });
   
-  // 1. جلب قائمة بالمجلدات الفرعية أولاً (مجلدات المعايير)
+  // 1. جلب قائمة المجلدات الفرعية بسرعة كبيرة
   const subFoldersResponse = await drive.files.list({
     q: `'${folderId}' in parents and mimeType = 'application/vnd.google-apps.folder' and trashed = false`,
     fields: 'files(id, name)',
-    pageSize: 15
+    pageSize: 10
   });
 
   const subFolders = subFoldersResponse.data.files || [];
-  let allFilesToProcess: any[] = [];
+  let filesToDownload: any[] = [];
 
   if (subFolders.length > 0) {
-    // 2. إذا وجدنا مجلدات فرعية، نأخذ ملفاً واحداً من أول 5 مجلدات لضمان السرعة
-    for (const folder of subFolders.slice(0, 5)) {
-      const filesInSub = await drive.files.list({
+    // 2. البحث في المجلدات الفرعية بالتوازي (Parallel Search)
+    const folderPromises = subFolders.slice(0, 4).map(folder => 
+      drive.files.list({
         q: `'${folder.id}' in parents and trashed = false`,
         fields: 'files(id, name, mimeType)',
         pageSize: 1
-      });
-      if (filesInSub.data.files && filesInSub.data.files.length > 0) {
-        const f = filesInSub.data.files[0];
-        if (SUPPORTED_MIME_TYPES.includes(f.mimeType!)) {
-          allFilesToProcess.push(f);
-        }
+      })
+    );
+    
+    const results = await Promise.all(folderPromises);
+    results.forEach(res => {
+      if (res.data.files && res.data.files[0]) {
+        const f = res.data.files[0];
+        if (SUPPORTED_MIME_TYPES.includes(f.mimeType!)) filesToDownload.push(f);
       }
-    }
-  } else {
-    // 3. إذا لم توجد مجلدات فرعية، نبحث في المجلد الرئيسي مباشرة
-    const rootFiles = await drive.files.list({
+    });
+  }
+
+  // إذا لم نجد شيئاً في المجلدات الفرعية، نبحث في الرئيسي
+  if (filesToDownload.length === 0) {
+    const rootRes = await drive.files.list({
       q: `'${folderId}' in parents and trashed = false`,
       fields: 'files(id, name, mimeType)',
       pageSize: 3
     });
-    allFilesToProcess = (rootFiles.data.files || []).filter(f => SUPPORTED_MIME_TYPES.includes(f.mimeType!));
+    filesToDownload = (rootRes.data.files || []).filter(f => SUPPORTED_MIME_TYPES.includes(f.mimeType!));
   }
 
-  if (allFilesToProcess.length === 0) return [];
+  if (filesToDownload.length === 0) return [];
 
-  // 4. تحميل محتوى الملفات (بحد أقصى ملفين لضمان عدم تجاوز الـ 10 ثوانٍ)
-  const results = [];
-  for (const file of allFilesToProcess.slice(0, 2)) {
+  // 3. تحميل محتوى الملفات بالتوازي (أهم خطوة للسرعة)
+  // نكتفي بـ 2-3 ملفات فقط لضمان عدم تجاوز الوقت
+  const downloadPromises = filesToDownload.slice(0, 3).map(async (file) => {
     try {
       const res = await drive.files.get(
         { fileId: file.id!, alt: 'media' },
         { responseType: 'arraybuffer' }
       );
-      results.push({
+      return {
         id: file.id,
         name: file.name,
         mimeType: file.mimeType,
         buffer: new Uint8Array(res.data as ArrayBuffer),
-      });
-    } catch (e) { console.error("Error downloading file", file.name); }
-  }
+      };
+    } catch (e) {
+      return null;
+    }
+  });
 
-  return results;
+  const finalFiles = await Promise.all(downloadPromises);
+  return finalFiles.filter(f => f !== null);
 }
 
 function extractFolderId(url: string): string | null {
