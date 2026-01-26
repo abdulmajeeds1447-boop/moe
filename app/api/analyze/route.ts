@@ -24,7 +24,7 @@ export async function POST(req: Request) {
       return NextResponse.json({ error: 'المجلد فارغ أو الملفات غير مدعومة.' }, { status: 404 });
     }
 
-    // 2. تجهيز البيانات للذكاء الاصطناعي
+    // 2. تجهيز البيانات
     const promptParts: any[] = [];
     for (const file of driveFiles) {
       const base64Data = Buffer.from(file.buffer).toString('base64');
@@ -38,21 +38,20 @@ export async function POST(req: Request) {
       text: "بصفتك الخبير التربوي، قيم هذا المعلم بناءً على الشواهد أعلاه. التزم بـ JSON." 
     });
 
-    // 3. إعداد التعليمات ونوع المخرجات
     const genAI = new GoogleGenerativeAI(process.env.API_KEY);
-    const systemInstruction = `
+    
+    // إعدادات الموديل
+    const modelConfig = {
+      systemInstruction: `
 أنت مدير مدرسة خبير. قيّم المعلم بناءً على الشواهد فقط.
 المعايير (الوزن %):
 1.الواجبات(10) 2.المجتمع(10) 3.أولياء الأمور(10) 4.الاستراتيجيات(10) 5.النتائج(10) 6.الخطة(10) 
 7.التقنية(10) 8.البيئة(5) 9.الإدارة(5) 10.التحليل(10) 11.التقويم(10).
 
-الدرجة من 1-5. كن صارماً.
+الدرجة من 1-5.
 المخرجات JSON حصراً:
 { "suggested_scores": { "1": 0, ... "11": 0 }, "justification": "..." }
-    `;
-
-    const modelConfig = {
-      systemInstruction,
+      `,
       generationConfig: {
         responseMimeType: "application/json",
         responseSchema: {
@@ -68,17 +67,19 @@ export async function POST(req: Request) {
       }
     };
 
-    // 4. المحاولة الأولى: استخدام الموديل السريع (Flash)
+    // ✅ التغيير الجذري: استخدام "gemini-1.5-pro" بدلاً من Flash
+    // وإذا فشل، نستخدم "gemini-pro" (النسخة 1.0) كحل أخير مضمون
     try {
-      const model = genAI.getGenerativeModel({ model: "gemini-1.5-flash", ...modelConfig });
+      console.log("Trying Gemini 1.5 Pro...");
+      const model = genAI.getGenerativeModel({ model: "gemini-1.5-pro", ...modelConfig });
       const result = await model.generateContent({ contents: [{ role: 'user', parts: promptParts }] });
       return NextResponse.json(JSON.parse(result.response.text()));
-    } catch (flashError: any) {
-      console.warn("Flash model failed, trying fallback...", flashError.message);
+    } catch (proError: any) {
+      console.warn("Gemini 1.5 Pro failed, trying Legacy Gemini Pro...", proError.message);
       
-      // 5. المحاولة الثانية (خطة الطوارئ): استخدام الموديل المستقر (Pro)
-      // إذا فشل Flash، نستخدم Pro تلقائياً لإنقاذ الموقف
-      const fallbackModel = genAI.getGenerativeModel({ model: "gemini-1.5-pro", ...modelConfig });
+      // محاولة الإنقاذ الأخيرة: استخدام الموديل الكلاسيكي (gemini-pro)
+      // هذا الموديل موجود منذ زمن ومستحيل أن يعطي 404
+      const fallbackModel = genAI.getGenerativeModel({ model: "gemini-pro", ...modelConfig });
       const fallbackResult = await fallbackModel.generateContent({ contents: [{ role: 'user', parts: promptParts }] });
       return NextResponse.json(JSON.parse(fallbackResult.response.text()));
     }
