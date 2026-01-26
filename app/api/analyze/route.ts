@@ -1,6 +1,8 @@
+
 import { NextResponse } from 'next/server';
 import { getDriveFiles } from '../../../lib/drive';
 import { GoogleGenAI, Type } from "@google/genai";
+import { Buffer } from 'buffer';
 
 export async function POST(req: Request) {
   try {
@@ -14,7 +16,6 @@ export async function POST(req: Request) {
       return NextResponse.json({ error: 'رابط المجلد مطلوب.' }, { status: 400 });
     }
 
-    // 1. جلب الملفات
     let driveFiles;
     try {
       driveFiles = await getDriveFiles(link);
@@ -26,9 +27,8 @@ export async function POST(req: Request) {
       return NextResponse.json({ error: 'المجلد فارغ من الشواهد المدعومة (PDF/صور).' }, { status: 404 });
     }
 
-    // 2. تجهيز الشواهد (نأخذ أول 10 لضمان السرعة)
     const promptParts: any[] = [];
-    const limitedFiles = driveFiles.slice(0, 10);
+    const limitedFiles = driveFiles.slice(0, 15);
     
     for (const file of limitedFiles) {
       const base64Data = Buffer.from(file.buffer).toString('base64');
@@ -38,45 +38,32 @@ export async function POST(req: Request) {
       promptParts.push({ text: `وثيقة شاهد: ${file.name}\n` });
     }
 
-    promptParts.push({ 
-      text: "بناءً على الشواهد المرفوعة، قم بإجراء تقييم تربوي دقيق للمعلم وفق المعايير والأوزان المحددة." 
-    });
-
     const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
     
-    // 3. التعليمات الصارمة (تم التعديل ليتوافق مع نظام الدرجات المباشر)
     const systemInstruction = `
-أنت خبير تربوي ومقيم معتمد. مهمتك تقييم أداء المعلم بناءً على الشواهد المرفقة بدقة وموضوعية.
+أنت خبير تربوي ومحلل بيانات تعمل لصالح مدير المدرسة "نايف أحمد الشهري". 
+مهمتك: تحليل شواهد المعلمين وتقديم تقييم رقمي مئوي دقيق بناءً على المعايير الـ 11.
 
-المعايير والأوزان (الدرجة العظمى):
-1. أداء الواجبات الوظيفية (10)
-2. التفاعل مع المجتمع (10)
-3. التفاعل مع أولياء الأمور (10)
-4. التنويع في استراتيجيات التدريس (10)
-5. تحسين نتائج المتعلمين (10)
-6. إعداد وتنفيذ خطة التعلم (10)
-7. توظيف تقنيات ووسائل التعلم (10)
-8. تهيئة البيئة التعليمية (5)
-9. الإدارة الصفية (5)
-10. تحليل نتائج المتعلمين (10)
-11. تنوع أساليب التقويم (10)
+الأوزان المعتمدة (يجب أن يكون المجموع الكلي 100%):
+- المعايير (1، 2، 3، 4، 5، 6، 7، 10، 11): وزن كل معيار 10% من الدرجة النهائية.
+- المعايير (8، 9): وزن كل معيار 5% فقط من الدرجة النهائية.
 
-القواعد الصارمة جداً:
-- قيّم الدرجة مباشرة من أصل الوزن الكلي (مثلاً 9 من 10، أو 4 من 5).
-- المعيارين 8 و 9 حدهما الأقصى 5 درجات. البقية 10.
-- إذا لم تجد شاهداً للمعيار، ضع الدرجة 0.
-- كن دقيقاً: الشواهد العامة لا تأخذ الدرجة الكاملة.
+المطلوب منك:
+1. تقييم كل معيار من (0 إلى 5) نقاط، حيث:
+   - 5 نقاط تعني تحقيق النسبة كاملة (10% أو 5% حسب المعيار).
+   - 0 نقاط تعني عدم وجود شاهد إطلاقاً.
+2. كن دقيقاً جداً وصارماً في منح الدرجات؛ فالمعلم المتميز هو من تكتمل شواهده فعلياً.
+3. قدم تبريراً تربوياً (justification) لكل درجة منحتها بناءً على ما رأيته في الملفات.
 
-الرد JSON حصراً:
+يجب أن يكون الرد بصيغة JSON فقط:
 {
-  "suggested_scores": { "1": 9, "2": 10, "3": 0, "8": 4, "9": 5 ... },
-  "justification": "رأيك التربوي المختصر والدقيق..."
+  "suggested_scores": { "1": 5, "2": 3, ..., "11": 5 },
+  "justification": "تحليل تربوي مفصل يوضح نقاط القوة والضعف"
 }
     `;
 
-    // 4. استدعاء الموديل (تم استخدام الاسم الصحيح والمستقر)
     const response = await ai.models.generateContent({
-      model: 'gemini-1.5-flash', // ✅ هذا هو الاسم الصحيح والسريع. gemini-3 غير موجود حالياً ويسبب تعطل النظام.
+      model: 'gemini-3-flash-preview',
       contents: { parts: promptParts },
       config: {
         systemInstruction: systemInstruction,
@@ -100,23 +87,10 @@ export async function POST(req: Request) {
       }
     });
 
-    // استخراج النص وتصحيح طريقة الوصول إليه في المكتبة الجديدة
-    const responseText = response.text(); 
-    return NextResponse.json(JSON.parse(responseText));
+    return NextResponse.json(JSON.parse(response.text || '{}'));
 
   } catch (error: any) {
-    console.error("Critical AI Error:", error);
-    
-    if (error.status === 429) {
-      return NextResponse.json({ 
-        error: 'تم تجاوز الحد المسموح للطلبات المجانية', 
-        details: 'يرجى المحاولة بعد دقيقة واحدة.' 
-      }, { status: 429 });
-    }
-
-    return NextResponse.json({ 
-      error: 'فشل التحليل الذكي', 
-      details: error.message || 'تأكد من إعدادات API Key'
-    }, { status: 500 });
+    console.error("AI Error:", error);
+    return NextResponse.json({ error: 'فشل التحليل الذكي' }, { status: 500 });
   }
 }
