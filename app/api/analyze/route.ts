@@ -19,45 +19,54 @@ export async function POST(req: Request) {
       return NextResponse.json({ error: 'المجلد فارغ أو لا يمكن الوصول إليه' }, { status: 404 });
     }
 
-    // تحليل أول 7 ملفات (لتحقيق توازن بين الدقة واستهلاك التوكنز في برو)
-    const limitedFiles = driveFiles.slice(0, 7);
+    // تحليل ملفات المجلد بعمق (أول 8 ملفات لضمان الجودة)
+    const limitedFiles = driveFiles.slice(0, 8);
     const promptParts: any[] = [];
     
     for (const file of limitedFiles) {
       const processed = await parseFileContent(file);
       if (processed) {
         if (processed.type === 'text') {
-          promptParts.push({ text: `--- ملف مستند (${processed.name}) ---\n${processed.content}\n` });
+          promptParts.push({ text: `--- فحص مستند (${processed.name}) ---\n${processed.content}\n` });
         } else if (processed.type === 'image') {
           promptParts.push({
             inlineData: { data: processed.content, mimeType: processed.mimeType }
           });
-          promptParts.push({ text: `[صورة شاهد: ${processed.name}]\n` });
+          promptParts.push({ text: `[صورة شاهد فوتوغرافي: ${processed.name}]\n` });
         }
       }
     }
 
     const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
     
-    // استخدام الموديل الأقوى للتحليل الاحترافي
+    // استخدام أقوى موديل متاح للتحليل المنطقي
     const modelName = 'gemini-3-pro-preview';
     
     const systemInstruction = `
-أنت الآن "خبير تدقيق جودة الأداء التعليمي" بوزارة التعليم. مهمتك فحص ملفات المعلم بصرامة متناهية.
+أنت الآن "مدقق فني أول" في وزارة التعليم. مهمتك فحص ملفات المعلم بصرامة مهنية تامة.
 
-قواعد التدقيق الاحترافي:
-1. أي ملف يحتوي فقط على "جدول المعايير" أو "توصيف العناصر" هو (مرجع) وليس (شاهد). امنح درجة 0 فوراً للمعيار الذي لا يوجد له إلا توصيفه.
-2. الشاهد المقبول هو: (خطة درس منفذة، صورة فوتوغرافية لحدث صفّي، لقطة شاشة لرسائل مع أولياء الأمور، كشف درجات، تقرير نشاط موقع ومختوم).
-3. كن صريحاً ومهنياً: إذا كان المجلد يحتوي على أوراق فارغة أو مكررة، اذكر ذلك في التبرير.
-4. التبرير يجب أن يكون تقريراً رسمياً يذكر أسماء الملفات التي أثبتت كل معيار.
+تحذير هام (Auditor Alert):
+- المجلد قد يحتوي على "أطر مرجعية" أو "جداول معايير الوزارة". هذه ليست شواهد! 
+- إذا وجدت مستنداً يصف المعيار أو يشرح كيف يتم التقييم (مثل جدول أوزان)، يجب عليك تجاهله تماماً في التقييم ومنح درجة 0 للمعيار المرتبط به ما لم تجد "شاهداً تطبيقياً" (مثل: خطة درس، صور طلاب، كشوفات درجات حقيقية، رسائل أولياء أمور).
+- كن صريحاً جداً: إذا لم تجد إلا "توصيف المعايير"، اذكر في التبرير: "لم يتم العثور على شواهد تطبيقية، الملفات المرفقة هي وثائق مرجعية فقط".
 
-المعايير الـ 11:
-(1: الواجبات، 2: المجتمع المهني، 3: أولياء الأمور، 4: استراتيجيات، 5: نتائج الطلاب، 6: خطة التعلم، 7: التقنية، 8: البيئة، 9: الإدارة الصفية، 10: تحليل النتائج، 11: التقويم).
+المعايير الـ 11 والأوزان المخصصة:
+1. الواجبات الوظيفية (10%)
+2. التفاعل مع المجتمع المهني (10%)
+3. التفاعل مع أولياء الأمور (10%)
+4. استراتيجيات التدريس (10%)
+5. نتائج المتعلمين (10%)
+6. خطة التعلم (10%)
+7. تقنيات ووسائل التعلم (10%)
+8. البيئة التعليمية (5%)
+9. الإدارة الصفية (5%)
+10. تحليل النتائج (10%)
+11. أساليب التقويم (10%)
 
-يجب أن يكون الرد JSON فقط بهذا الهيكل:
+يجب أن يكون الرد JSON حصراً:
 {
   "suggested_scores": {"1": 0, "2": 0, ... "11": 0},
-  "justification": "تقرير التدقيق: \n- الملفات المكتشفة: [قائمة الأسماء]\n- الأدلة المثبتة: [اذكر ماذا وجدت ولمن]\n- النواقص: [ما الذي يفتقده المعلم لرفع درجته]\n- النتيجة النهائية: [تحليل احترافي قصير]"
+  "justification": "تقرير التدقيق الفني المعتمد: \n\n1. تقييم الشواهد: [اذكر أسماء الملفات التي اعتبرتها شواهد حقيقية وما الذي تجاهلته كأوراق مرجعية]\n2. الأدلة المفقودة: [ما الذي يحتاجه المعلم لإثبات أدائه]\n3. الخلاصة المهنية: [تحليل نقدي صارم لمحتوى المجلد]"
 }
     `;
 
@@ -67,8 +76,8 @@ export async function POST(req: Request) {
       config: {
         systemInstruction: systemInstruction,
         responseMimeType: 'application/json',
-        temperature: 0.2, // منخفض لضمان الدقة والاتساق
-        thinkingConfig: { thinkingBudget: 4000 }, // تفعيل التفكير لتحليل الروابط المعقدة
+        temperature: 0.1, // دقة متناهية
+        thinkingConfig: { thinkingBudget: 4000 }, // تفعيل التفكير لتحليل الفرق بين الشاهد والمرجع
         responseSchema: {
           type: Type.OBJECT,
           properties: {
@@ -90,10 +99,7 @@ export async function POST(req: Request) {
     return NextResponse.json(JSON.parse(response.text || '{}'));
 
   } catch (error: any) {
-    console.error("Pro Analysis Error:", error);
-    return NextResponse.json({ 
-      error: 'فشل التدقيق الاحترافي', 
-      details: error.message 
-    }, { status: 500 });
+    console.error("Auditor Pro Error:", error);
+    return NextResponse.json({ error: 'فشل نظام التدقيق الاحترافي' }, { status: 500 });
   }
 }
