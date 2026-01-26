@@ -31,7 +31,7 @@ export async function POST(req: Request) {
 
     // نأخذ أول 10 شواهد لضمان جودة التحليل وعدم تجاوز حدود الذاكرة
     const promptParts: any[] = [];
-    const limitedFiles = driveFiles.slice(0, 10);
+    const limitedFiles = driveFiles.slice(0, 5);
     
     for (const file of limitedFiles) {
       const base64Data = Buffer.from(file.buffer).toString('base64');
