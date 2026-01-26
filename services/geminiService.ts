@@ -1,7 +1,7 @@
 
 export const analyzeTeacherReport = async (driveLink: string, onRetry?: (attempt: number) => void) => {
-  const maxRetries = 3;
-  let delay = 2000; // البدء بـ 2 ثانية
+  const maxRetries = 2;
+  let delay = 3000;
 
   for (let i = 0; i < maxRetries; i++) {
     try {
@@ -25,25 +25,25 @@ export const analyzeTeacherReport = async (driveLink: string, onRetry?: (attempt
         return result;
       }
 
-      // إذا كان الخطأ 503 (ضغط) أو 429 (عدد طلبات) نقوم بالمحاولة مرة أخرى
-      if (response.status === 503 || response.status === 429) {
+      if (response.status === 429) {
+        throw new Error('عذراً، تم الوصول للحد الأقصى من الطلبات المجانية حالياً. يرجى الانتظار دقيقة واحدة وإعادة المحاولة.');
+      }
+
+      if (response.status === 503) {
         if (i < maxRetries - 1) {
           if (onRetry) onRetry(i + 1);
           await new Promise(resolve => setTimeout(resolve, delay));
-          delay *= 2; // مضاعفة وقت الانتظار في كل محاولة
+          delay *= 2;
           continue;
         }
-        throw new Error(response.status === 503 ? 'خادم الذكاء الاصطناعي مشغول حالياً، يرجى المحاولة بعد قليل.' : 'تم تجاوز حد الطلبات، يرجى الانتظار دقيقة.');
+        throw new Error('خادم الذكاء الاصطناعي تحت ضغط كبير الآن، يرجى المحاولة لاحقاً.');
       }
 
-      const errorMessage = result.details ? `${result.error}: ${result.details}` : (result.error || 'فشل التحليل');
-      throw new Error(errorMessage);
+      throw new Error(result.error || 'فشل التحليل');
 
     } catch (error: any) {
-      if (i === maxRetries - 1) throw error;
-      if (onRetry) onRetry(i + 1);
+      if (i === maxRetries - 1 || error.message.includes('429')) throw error;
       await new Promise(resolve => setTimeout(resolve, delay));
-      delay *= 2;
     }
   }
 };
