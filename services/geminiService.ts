@@ -1,6 +1,6 @@
 
 export const analyzeTeacherReport = async (driveLink: string, onRetry?: (attempt: number) => void) => {
-  const maxRetries = 3;
+  const maxRetries = 2;
   let delay = 2000;
 
   for (let i = 0; i < maxRetries; i++) {
@@ -25,15 +25,8 @@ export const analyzeTeacherReport = async (driveLink: string, onRetry?: (attempt
         return result;
       }
 
-      // إذا كان الخطأ بسبب الضغط، نحاول مرة أخرى
-      if ((response.status === 429 || response.status === 503) && i < maxRetries - 1) {
-        if (onRetry) onRetry(i + 1);
-        await new Promise(resolve => setTimeout(resolve, delay));
-        delay *= 1.5;
-        continue;
-      }
-
-      throw new Error(result.error || 'فشل الاتصال بنظام التدقيق');
+      // إظهار الخطأ التفصيلي إذا جاء من السيرفر
+      throw new Error(result.details || result.error || 'فشل الاتصال بنظام التدقيق');
 
     } catch (error: any) {
       if (i === maxRetries - 1) throw error;
