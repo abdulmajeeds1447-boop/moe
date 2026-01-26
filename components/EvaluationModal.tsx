@@ -40,11 +40,10 @@ const EvaluationModal: React.FC<EvaluationModalProps> = ({ submission, onClose, 
   const calculateTotal = () => {
     let total = 0;
     EVALUATION_CRITERIA.forEach(c => { 
-      const rawScore = Number(scores[c.id] || 0);
-      const weightedScore = (rawScore / 5) * c.weight;
-      total += weightedScore;
+      // الجمع المباشر لأن الدرجة أصبحت هي نفسها الوزن المستحق
+      total += Number(scores[c.id] || 0);
     });
-    return Math.min(100, Math.round(total)); 
+    return Math.min(100, total); 
   };
 
   const getGradeInfo = (t: number) => {
@@ -195,7 +194,7 @@ const EvaluationModal: React.FC<EvaluationModalProps> = ({ submission, onClose, 
           </div>
         </div>
 
-        {/* الجدول التفصيلي */}
+        {/* الجدول التفصيلي - تم التعديل هنا ليعرض الدرجة مباشرة */}
         <div className="mb-4 flex-1">
           <table className="print-table w-full border-collapse text-[9px] text-center">
             <thead>
@@ -208,15 +207,15 @@ const EvaluationModal: React.FC<EvaluationModalProps> = ({ submission, onClose, 
             </thead>
             <tbody>
               {EVALUATION_CRITERIA.map((c, idx) => {
-                const rawScore = Number(scores[c.id] || 0);
-                const weightedScore = (rawScore / 5) * c.weight;
+                // التعديل الهام: عرض الدرجة المخزنة مباشرة بدون قسمة
+                const finalScore = Number(scores[c.id] || 0);
                 return (
                   <tr key={c.id}>
                     <td className="font-bold bg-slate-50">{idx + 1}</td>
                     <td className="text-right px-2 font-semibold">{c.label}</td>
                     <td>{c.weight}</td>
                     <td className="font-black bg-slate-50">
-                       {Number.isInteger(weightedScore) ? weightedScore : weightedScore.toFixed(1)}
+                       {finalScore}
                     </td>
                   </tr>
                 );
@@ -290,7 +289,10 @@ const EvaluationModal: React.FC<EvaluationModalProps> = ({ submission, onClose, 
                       onChange={e => setScores(p => ({...p, [c.id]: parseInt(e.target.value)}))}
                       className="bg-slate-50 px-3 py-1 rounded-lg text-xs font-black text-moe-teal outline-none focus:ring-2 focus:ring-moe-teal/20"
                     >
-                      {[5,4,3,2,1,0].map(v => <option key={v} value={v}>{v}</option>)}
+                      {/* إنشاء قائمة أرقام تنازلياً من وزن المعيار حتى الصفر */}
+                      {Array.from({ length: c.weight + 1 }, (_, i) => c.weight - i).map(v => (
+                        <option key={v} value={v}>{v}</option>
+                      ))}
                     </select>
                   </div>
                 ))}
