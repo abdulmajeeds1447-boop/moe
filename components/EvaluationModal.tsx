@@ -1,3 +1,4 @@
+
 'use client';
 
 import React, { useState, useEffect } from 'react';
@@ -38,7 +39,6 @@ const EvaluationModal: React.FC<EvaluationModalProps> = ({ submission, onClose, 
     const criterion = EVALUATION_CRITERIA.find(c => c.id === id);
     if (!criterion) return 0;
     const rawScore = Number(scores[id] || 0);
-    // الدرجة من 5، نضربها في الوزن المقسم على 5
     return (rawScore / 5) * criterion.weight;
   };
 
@@ -62,12 +62,25 @@ const EvaluationModal: React.FC<EvaluationModalProps> = ({ submission, onClose, 
   const runAIAnalysis = async () => {
     if (isViewOnly) return;
     setIsAnalyzing(true);
-    setAnalysisStatus('جاري تشغيل المدقق الفني (Auditor Pro Mode)...');
+    
+    const loadingMessages = [
+      'جاري الاتصال بـ Google Drive لجلب الملفات...',
+      'يتم الآن تحميل الوثائق وقراءتها آلياً...',
+      'الذكاء الاصطناعي يفحص الشواهد (قد يستغرق وقتاً للملفات الكبيرة)...',
+      'جاري مقارنة الأدلة مع المعايير المهنية الـ 11...',
+      'لحظات.. يتم صياغة النقد الفني النهائي...'
+    ];
+
+    let msgIndex = 0;
+    const msgInterval = setInterval(() => {
+      setAnalysisStatus(loadingMessages[msgIndex]);
+      msgIndex = (msgIndex + 1) % loadingMessages.length;
+    }, 4000);
+
+    setAnalysisStatus(loadingMessages[0]);
     
     try {
-      const data = await analyzeTeacherReport(submission.drive_link, (attempt) => {
-        setAnalysisStatus(`جاري فحص الشواهد ونقد المجلد (محاولة ${attempt}/3)`);
-      });
+      const data = await analyzeTeacherReport(submission.drive_link);
       
       if (data && data.suggested_scores) {
         setJustification(data.justification || '');
@@ -81,6 +94,7 @@ const EvaluationModal: React.FC<EvaluationModalProps> = ({ submission, onClose, 
     } catch (err: any) {
       alert(err.message);
     } finally {
+      clearInterval(msgInterval);
       setIsAnalyzing(false);
       setAnalysisStatus('');
     }
@@ -111,7 +125,6 @@ const EvaluationModal: React.FC<EvaluationModalProps> = ({ submission, onClose, 
         {`@page { size: A4; margin: 0; } body { visibility: hidden; } .print-container, .print-container * { visibility: visible; } .print-container { position: fixed; top: 0; left: 0; width: 210mm; padding: 15mm; background: white; }`}
       </style>
 
-      {/* تقرير الطباعة الرسمي المحدث */}
       <div className="print-container hidden font-['Tajawal'] text-black">
         <div className="flex justify-between items-center mb-6 border-b-4 border-[#0d333f] pb-4">
            <div className="text-[10px] font-bold">المملكة العربية السعودية<br/>وزارة التعليم<br/>ثانوية الأمير عبدالمجيد الأولى</div>
@@ -216,9 +229,15 @@ const EvaluationModal: React.FC<EvaluationModalProps> = ({ submission, onClose, 
               </div>
 
               {isAnalyzing ? (
-                <div className="bg-white p-10 rounded-[2rem] border-2 border-moe-teal border-dashed text-center space-y-4">
-                  <div className="w-12 h-12 border-4 border-moe-teal border-t-transparent rounded-full animate-spin mx-auto" />
-                  <p className="text-sm font-black text-moe-teal animate-pulse">{analysisStatus}</p>
+                <div className="bg-white p-12 rounded-[3rem] border-2 border-moe-teal border-dashed text-center space-y-6 shadow-sm">
+                  <div className="relative">
+                    <div className="w-16 h-16 border-4 border-moe-teal border-t-transparent rounded-full animate-spin mx-auto" />
+                    <div className="absolute inset-0 flex items-center justify-center text-xs font-black text-moe-teal">AI</div>
+                  </div>
+                  <div className="space-y-2">
+                    <p className="text-base font-black text-moe-navy animate-pulse">{analysisStatus}</p>
+                    <p className="text-[10px] text-slate-400 font-bold">هذه العملية قد تستغرق من 20 إلى 40 ثانية حسب سرعة جوجل درايف</p>
+                  </div>
                 </div>
               ) : (
                 <div className="grid grid-cols-2 gap-4">
