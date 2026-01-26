@@ -2,13 +2,16 @@
 import { NextResponse } from 'next/server';
 import { getDriveFiles } from '../../../lib/drive';
 import { GoogleGenAI, Type } from "@google/genai";
+import { Buffer } from 'buffer';
+
+export const maxDuration = 60; // رفع مدة التنفيذ لـ 60 ثانية (مسموح في Vercel Pro/Hobby)
 
 export async function POST(req: Request) {
   try {
     const { link } = await req.json();
 
     if (!process.env.API_KEY) {
-      return NextResponse.json({ error: 'مفتاح Gemini API غير معرف.' }, { status: 500 });
+      return NextResponse.json({ error: 'مفتاح Gemini API غير معرف في إعدادات السيرفر.' }, { status: 500 });
     }
 
     if (!link) {
@@ -19,63 +22,43 @@ export async function POST(req: Request) {
     try {
       driveFiles = await getDriveFiles(link);
     } catch (driveError: any) {
+      console.error("Drive Access Error:", driveError);
       return NextResponse.json({ error: 'خطأ في الوصول للمجلد', details: driveError.message }, { status: 403 });
     }
 
     if (!driveFiles || driveFiles.length === 0) {
-      return NextResponse.json({ error: 'المجلد فارغ من الشواهد المدعومة (PDF/صور).' }, { status: 404 });
+      return NextResponse.json({ error: 'المجلد فارغ أو لا يحتوي على ملفات مدعومة (صور/PDF).' }, { status: 404 });
     }
 
-    // نأخذ أول 10 شواهد لضمان جودة التحليل وعدم تجاوز حدود الذاكرة
+    // إعداد أجزاء الطلب (Multimodal Prompt)
     const promptParts: any[] = [];
     const limitedFiles = driveFiles.slice(0, 10);
     
     for (const file of limitedFiles) {
-      const base64Data = Buffer.from(file.buffer).toString('base64');
-      promptParts.push({
-        inlineData: { data: base64Data, mimeType: file.mimeType }
-      });
-      promptParts.push({ text: `وثيقة شاهد: ${file.name}\n` });
+      if (file.buffer) {
+        const base64Data = Buffer.from(file.buffer).toString('base64');
+        promptParts.push({
+          inlineData: { data: base64Data, mimeType: file.mimeType }
+        });
+        promptParts.push({ text: `وثيقة من ملف المعلم: ${file.name}\n` });
+      }
     }
 
     promptParts.push({ 
-      text: "بناءً على الشواهد المرفوعة، قم بإجراء تقييم تربوي صارم ( للمعلم صاحب الملف) وفق المعايير الـ 11 المحددة." 
+      text: "بناءً على المستندات والصور المرفقة، قم بتحليل أداء المعلم بدقة تربوية وفق المعايير الـ 11. ركز على الأدلة الملموسة (تقارير، صور حصص، كشوفات) واخصم درجات في حال غياب الدليل الواضح." 
     });
 
     const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
     
-    // التعليمات التربوية الصارمة بناءً على طلب المدير نايف الشهري
     const systemInstruction = `
-أنت مساعد تقني وخبير تربوي تعمل مع مدير المدرسة "نايف أحمد الشهري". مهمتك هي تحليل الأدلة والملفات المقدمة من المعلمين لتقييم أدائهم الوظيفي بناءً على معايير وزارة التعليم السعودية بدقة وموضوعية.
-
-المعايير الـ 11 المطلوب تقييمها:
-1. أداء الواجبات الوظيفية: التقيد بالدوام، تأدية الحصص، الإشراف، المناوبة، وحصص الانتظار.
-2. التفاعل مع المجتمع: مجتمعات التعلم المهنية، تبادل الزيارات، الدروس التطبيقية، بحث الدرس.
-3. التفاعل مع أولياء الأمور: التواصل الفعال (الموجه الطلابي)، تزويدهم بالمستويات، الخطة الأسبوعية.
-4. التنويع في استراتيجيات التدريس: استراتيجيات متنوعة تناسب المستويات، ومراعاة الفروق الفردية.
-5. تحسين نتائج المتعلمين: معالجة الفاقد التعليمي، خطط علاجية، خطط إثرائية.
-6. إعداد وتنفيذ خطة التعلم: توثيق توزيع المنهج وإعداد الدروس والواجبات.
-7. توظيف تقنيات ووسائل التعلم: دمج التقنية والتنويع في الوسائل التعليمية.
-8. تهيئة البيئة التعليمية: مراعاة حاجات الطلاب، التهيئة النفسية، التحفيز.
-9. الإدارة الصفية: ضبط سلوك الطلاب، شد الانتباه، ومتابعة الحضور والغياب.
-10. تحليل نتائج المتعلمين: تحليل نتائج الاختبارات، وتصنيف الطلاب.
-11. تنوع أساليب التقويم: اختبارات ورقية وإلكترونية، مشاريع، مهام أدائية، ملفات إنجاز.
-
-القواعد الصارمة:
-- الدرجة من 0 إلى 5 لكل معيار.
-- خفض الدرجة لـ (0 أو 1) إذا لم تجد شاهداً صريحاً للمعيار.
-- كن دقيقاً جداً ولا تمنح درجة 5 إلا بوجود أدلة كافية وشاملة.
-
-الرد يجب أن يكون JSON فقط:
-{
-  "suggested_scores": { "1": 5, "2": 3, ... "11": 4 },
-  "justification": "تحليل مفصل بناءً على ما وجد في الشواهد"
-}
+أنت خبير تدقيق تربوي تعمل كمساعد لمدير المدرسة "نايف أحمد الشهري".
+مهمتك: تقييم المعلم من 0 إلى 5 في 11 معياراً فنياً.
+يجب أن يكون الرد بصيغة JSON حصراً وتحتوي على suggested_scores و justification.
     `;
 
     const response = await ai.models.generateContent({
-      model: 'gemini-3-flash-preview', // تغيير الموديل للاسم الصحيح والمستقر
-      contents: { parts: promptParts },
+      model: 'gemini-3-flash-preview', 
+      contents: [{ parts: promptParts }],
       config: {
         systemInstruction: systemInstruction,
         responseMimeType: 'application/json',
@@ -98,16 +81,18 @@ export async function POST(req: Request) {
       }
     });
 
-    return NextResponse.json(JSON.parse(response.text || '{}'));
+    const resultText = response.text;
+    if (!resultText) throw new Error("لم يتم استلام محتوى نصي من الذكاء الاصطناعي");
+
+    return NextResponse.json(JSON.parse(resultText));
 
   } catch (error: any) {
-    console.error("Critical AI Error:", error);
+    console.error("Critical Analysis Error:", error);
     
-    // التعامل مع خطأ الكوتا (Quota)
-    if (error.status === 429) {
+    if (error.status === 429 || error.message?.includes('429')) {
       return NextResponse.json({ 
-        error: 'تم تجاوز الحد المسموح للطلبات المجانية', 
-        details: 'يرجى المحاولة بعد دقيقة واحدة.' 
+        error: 'تم تجاوز حد الطلبات', 
+        details: 'الخطة المجانية مشغولة حالياً، يرجى المحاولة بعد قليل.' 
       }, { status: 429 });
     }
 
