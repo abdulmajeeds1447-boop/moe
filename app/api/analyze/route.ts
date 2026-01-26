@@ -26,7 +26,7 @@ export async function POST(req: Request) {
       return NextResponse.json({ error: 'المجلد فارغ أو لا يحتوي على ملفات مدعومة.' }, { status: 404 });
     }
 
-    // تجهيز الملفات (نستخدم الحد الأقصى المسموح به في drive.ts)
+    // تجهيز الملفات
     const promptParts: any[] = [];
     
     for (const file of driveFiles) {
@@ -34,6 +34,7 @@ export async function POST(req: Request) {
       promptParts.push({
         inlineData: { data: base64Data, mimeType: file.mimeType }
       });
+      // نرسل اسم الملف كاملاً (الذي يتضمن اسم المجلد/المعيار) ليساعد الذكاء الاصطناعي
       promptParts.push({ text: `[شاهد: ${file.name}]\n` });
     }
 
@@ -71,9 +72,9 @@ export async function POST(req: Request) {
 }
     `;
 
-    // ⚠️ التعديل الهام هنا: استخدام الاسم الأكثر دقة للموديل لتجنب خطأ 404
+    // ✅ العودة للاسم القياسي الصحيح
     const model = genAI.getGenerativeModel({
-      model: "gemini-1.5-flash-latest", // تم التغيير لضمان التوافق
+      model: "gemini-1.5-flash", 
       systemInstruction: systemInstruction,
       generationConfig: {
         responseMimeType: "application/json",
