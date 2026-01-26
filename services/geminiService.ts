@@ -8,9 +8,9 @@ export const analyzeTeacherReport = async (driveLink: string) => {
 
     const contentType = response.headers.get("content-type");
     
-    // إذا كانت الاستجابة ليست JSON، فهذا يعني أن Vercel أرجع صفحة خطأ HTML (غالباً Timeout)
+    // في حال رجع Vercel خطأ 504 (Timeout) ستكون الاستجابة HTML
     if (!contentType || !contentType.includes("application/json")) {
-      throw new Error('تجاوز المجلد الوقت المسموح للتحليل. يرجى التأكد من أن المجلد يحتوي على ملفات قليلة وواضحة (PDF/صور).');
+      throw new Error('تجاوزت العملية 10 ثوانٍ. يرجى التأكد من أن الملف الأول في المجلد هو تقرير PDF واضح وصغير الحجم.');
     }
 
     const result = await response.json();
@@ -19,7 +19,6 @@ export const analyzeTeacherReport = async (driveLink: string) => {
       throw new Error(result.error || 'فشل التحليل الذكي');
     }
 
-    // تنظيف وتجهيز الدرجات للتأكد من أنها أرقام
     if (result.suggested_scores) {
       const fixedScores: Record<number, number> = {};
       for (let j = 1; j <= 11; j++) {
@@ -32,7 +31,7 @@ export const analyzeTeacherReport = async (driveLink: string) => {
     return result;
 
   } catch (error: any) {
-    console.error("Gemini Service Error:", error);
-    throw new Error(error.message || 'حدث خطأ غير متوقع أثناء الاتصال بالخادم');
+    console.error("Service Error:", error);
+    throw new Error(error.message || 'خطأ في الاتصال بالخادم');
   }
 };
