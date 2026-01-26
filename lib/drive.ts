@@ -1,90 +1,64 @@
-
 import { google } from 'googleapis';
 
-const SCOPES = ['https://www.googleapis.com/auth/drive.readonly'];
-
-const SUPPORTED_MIME_TYPES = [
-  'application/pdf',
-  'image/jpeg',
-  'image/png',
-  'image/webp'
-];
-
-async function listFilesRecursive(drive: any, folderId: string, folderPath: string = "") {
-  let allFiles: any[] = [];
-  
+export async function getDriveFiles(folderLink: string) {
   try {
-    const response = await drive.files.list({
-      q: `'${folderId}' in parents and trashed = false`,
-      fields: 'files(id, name, mimeType)',
-    });
-
-    const files = response.data.files || [];
-
-    for (const file of files) {
-      if (file.mimeType === 'application/vnd.google-apps.folder') {
-        const subFiles = await listFilesRecursive(drive, file.id, `${folderPath}${file.name} / `);
-        allFiles = [...allFiles, ...subFiles];
-      } else if (SUPPORTED_MIME_TYPES.includes(file.mimeType)) {
-        allFiles.push({ ...file, path: folderPath + file.name });
-      }
+    // 1. استخراج معرف المجلد من الرابط
+    const folderIdMatch = folderLink.match(/[-\w]{25,}/);
+    if (!folderIdMatch) {
+      throw new Error('رابط المجلد غير صالح');
     }
-  } catch (error: any) {
-    throw new Error(`خطأ أثناء قراءة ملفات المجلد: ${error.message}`);
-  }
-  return allFiles;
-}
+    const folderId = folderIdMatch[0];
 
-export async function getDriveFiles(folderUrl: string) {
-  const folderId = extractFolderId(folderUrl);
-  if (!folderId) throw new Error('رابط المجلد غير صحيح. تأكد من نسخ الرابط كاملاً من المتصفح.');
-
-  if (!process.env.GOOGLE_SERVICE_ACCOUNT_EMAIL || !process.env.GOOGLE_PRIVATE_KEY) {
-    throw new Error('بيانات الوصول لـ Google Drive (Service Account) غير مكتملة في السيرفر.');
-  }
-
-  try {
-    const auth = new google.auth.JWT(
-      process.env.GOOGLE_SERVICE_ACCOUNT_EMAIL,
-      null,
-      process.env.GOOGLE_PRIVATE_KEY.replace(/\\n/g, '\n'),
-      SCOPES
-    );
+    // 2. إعداد المصادقة (Auth)
+    const auth = new google.auth.GoogleAuth({
+      credentials: {
+        client_email: process.env.GOOGLE_CLIENT_EMAIL,
+        private_key: process.env.GOOGLE_PRIVATE_KEY?.replace(/\\n/g, '\n'),
+      },
+      scopes: ['https://www.googleapis.com/auth/drive.readonly'],
+    });
 
     const drive = google.drive({ version: 'v3', auth });
-    const filesMetadata = await listFilesRecursive(drive, folderId);
-    
-    if (filesMetadata.length === 0) return [];
 
-    const downloadPromises = filesMetadata.slice(0, 10).map(async (file) => {
-      try {
-        const res = await drive.files.get(
-          { fileId: file.id, alt: 'media' },
-          { responseType: 'arraybuffer' }
-        );
-        return {
-          id: file.id,
-          name: file.path,
-          mimeType: file.mimeType,
-          buffer: new Uint8Array(res.data as ArrayBuffer),
-        };
-      } catch (err) {
-        return null;
-      }
+    // 3. جلب قائمة الملفات داخل المجلد
+    const res = await drive.files.list({
+      q: `'${folderId}' in parents and trashed = false`,
+      fields: 'files(id, name, mimeType)',
+      pageSize: 10, // نكتفي بـ 10 ملفات للسرعة
     });
 
-    const results = await Promise.all(downloadPromises);
-    return results.filter((f): f is NonNullable<typeof f> => f !== null);
+    const files = res.data.files;
+    if (!files || files.length === 0) return [];
+
+    // 4. تنزيل محتوى كل ملف (Buffer) - هذه الخطوة هي الأهم للذكاء الاصطناعي
+    const filesWithContent = await Promise.all(
+      files.map(async (file) => {
+        // نتجاهل المجلدات الفرعية
+        if (file.mimeType === 'application/vnd.google-apps.folder') return null;
+
+        try {
+          const fileRes = await drive.files.get(
+            { fileId: file.id!, alt: 'media' },
+            { responseType: 'arraybuffer' }
+          );
+          
+          return {
+            name: file.name,
+            mimeType: file.mimeType,
+            buffer: Buffer.from(fileRes.data as ArrayBuffer),
+          };
+        } catch (err) {
+          console.error(`فشل تنزيل الملف ${file.name}:`, err);
+          return null;
+        }
+      })
+    );
+
+    // تصفية الملفات التالفة أو المجلدات
+    return filesWithContent.filter((f) => f !== null);
 
   } catch (error: any) {
-    if (error.message.includes('404')) throw new Error('المجلد غير موجود أو الرابط خاطئ.');
-    if (error.message.includes('403')) throw new Error('لا نملك صلاحية الوصول. اجعل المجلد (أي شخص لديه الرابط).');
-    throw error;
+    console.error('خطأ في Drive:', error);
+    throw new Error('فشل الاتصال بـ Google Drive: ' + error.message);
   }
-}
-
-function extractFolderId(url: string): string | null {
-  // دعم روابط المجلدات المباشرة وروابط المشاركة
-  const match = url.match(/(?:folders\/|id=)([a-zA-Z0-9_-]{25,})/);
-  return match ? match[1] : null;
 }
