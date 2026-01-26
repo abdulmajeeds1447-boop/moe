@@ -1,9 +1,7 @@
-
 'use client';
 
 import React, { useState, useEffect } from 'react';
 import { Submission, EVALUATION_CRITERIA } from '../types.ts';
-import { analyzeTeacherReport } from '../services/geminiService.ts';
 import { supabase } from '../services/supabaseClient.ts';
 
 interface EvaluationModalProps {
@@ -15,7 +13,7 @@ interface EvaluationModalProps {
 const EvaluationModal: React.FC<EvaluationModalProps> = ({ submission, onClose, isViewOnly = false }) => {
   const [justification, setJustification] = useState('');
   const [isAnalyzing, setIsAnalyzing] = useState(false);
-  const [analysisStatus, setAnalysisStatus] = useState('');
+  const [progress, setProgress] = useState({ current: 0, total: 0, status: '' });
   const [isSaving, setIsSaving] = useState(false);
   const [scores, setScores] = useState<Record<number, number>>({
     1: 0, 2: 0, 3: 0, 4: 0, 5: 0, 6: 0, 7: 0, 8: 0, 9: 0, 10: 0, 11: 0
@@ -35,11 +33,72 @@ const EvaluationModal: React.FC<EvaluationModalProps> = ({ submission, onClose, 
     } catch (e) { console.error("Load error:", e); }
   };
 
+  const runAdvancedAnalysis = async () => {
+    if (isViewOnly) return;
+    setIsAnalyzing(true);
+    setProgress({ current: 0, total: 0, status: 'جاري فحص المجلد...' });
+
+    try {
+      // 1. جلب قائمة الملفات
+      const scanRes = await fetch('/api/drive/scan', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ link: submission.drive_link })
+      });
+      const { files, error: scanError } = await scanRes.json();
+      if (scanError) throw new Error(scanError);
+      if (!files || files.length === 0) throw new Error('لا توجد ملفات مدعومة في المجلد');
+
+      setProgress({ current: 0, total: files.length, status: `تم العثور على ${files.length} ملفات. جاري التحليل...` });
+
+      // 2. تحليل كل ملف على حدة (تجنب الـ Timeout)
+      let allFindings = "";
+      for (let i = 0; i < files.length; i++) {
+        const file = files[i];
+        setProgress(p => ({ ...p, current: i + 1, status: `جاري تحليل ملف: ${file.name}...` }));
+
+        const fileRes = await fetch('/api/analyze', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ 
+            mode: 'partial', 
+            fileId: file.id, 
+            mimeType: file.mimeType, 
+            fileName: file.name 
+          })
+        });
+        const { findings } = await fileRes.json();
+        allFindings += `--- ملف: ${file.name} ---\n${findings}\n\n`;
+      }
+
+      // 3. التجميع النهائي (Synthesis)
+      setProgress(p => ({ ...p, status: 'جاري صياغة التقرير النهائي واعتماد الدرجات...' }));
+      const finalRes = await fetch('/api/analyze', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ mode: 'final', previousFindings: allFindings })
+      });
+      const result = await finalRes.json();
+
+      if (result.suggested_scores) {
+        setJustification(result.justification || '');
+        const newScores = { ...scores };
+        Object.entries(result.suggested_scores).forEach(([k, v]) => {
+          newScores[Number(k)] = Number(v);
+        });
+        setScores(newScores);
+      }
+    } catch (err: any) {
+      alert(`خطأ: ${err.message}`);
+    } finally {
+      setIsAnalyzing(false);
+    }
+  };
+
   const calculateWeighted = (id: number) => {
     const criterion = EVALUATION_CRITERIA.find(c => c.id === id);
     if (!criterion) return 0;
-    const rawScore = Number(scores[id] || 0);
-    return (rawScore / 5) * criterion.weight;
+    return ((scores[id] || 0) / 5) * criterion.weight;
   };
 
   const calculateTotal = () => {
@@ -48,6 +107,7 @@ const EvaluationModal: React.FC<EvaluationModalProps> = ({ submission, onClose, 
     return Math.min(100, Math.round(total * 10) / 10); 
   };
 
+  const totalScore = calculateTotal();
   const getGradeInfo = (t: number) => {
     if (t >= 90) return { label: 'ممتاز / أداء رائد', color: 'text-emerald-600' };
     if (t >= 80) return { label: 'جيد جداً / أداء قوي', color: 'text-blue-600' };
@@ -55,56 +115,12 @@ const EvaluationModal: React.FC<EvaluationModalProps> = ({ submission, onClose, 
     if (t >= 60) return { label: 'مرضي / يحتاج تطوير', color: 'text-amber-600' };
     return { label: 'غير مرضي / ضعف حاد', color: 'text-red-600' };
   };
-
-  const totalScore = calculateTotal();
   const gradeInfo = getGradeInfo(totalScore);
 
-  const runAIAnalysis = async () => {
-    if (isViewOnly) return;
-    setIsAnalyzing(true);
-    
-    const loadingMessages = [
-      'جاري الاتصال بـ Google Drive لجلب الملفات...',
-      'يتم الآن تحميل الوثائق وقراءتها آلياً...',
-      'الذكاء الاصطناعي يفحص الشواهد (قد يستغرق وقتاً للملفات الكبيرة)...',
-      'جاري مقارنة الأدلة مع المعايير المهنية الـ 11...',
-      'لحظات.. يتم صياغة النقد الفني النهائي...'
-    ];
-
-    let msgIndex = 0;
-    const msgInterval = setInterval(() => {
-      setAnalysisStatus(loadingMessages[msgIndex]);
-      msgIndex = (msgIndex + 1) % loadingMessages.length;
-    }, 4000);
-
-    setAnalysisStatus(loadingMessages[0]);
-    
-    try {
-      const data = await analyzeTeacherReport(submission.drive_link);
-      
-      if (data && data.suggested_scores) {
-        setJustification(data.justification || '');
-        const newScores = { ...scores };
-        Object.entries(data.suggested_scores).forEach(([k, v]) => {
-          const numKey = Number(k);
-          if (numKey >= 1 && numKey <= 11) newScores[numKey] = Number(v);
-        });
-        setScores(newScores);
-      }
-    } catch (err: any) {
-      alert(err.message);
-    } finally {
-      clearInterval(msgInterval);
-      setIsAnalyzing(false);
-      setAnalysisStatus('');
-    }
-  };
-
   const saveEvaluation = async () => {
-    if (isViewOnly) return;
     setIsSaving(true);
     try {
-      const { error } = await supabase.from('evaluations').upsert({
+      await supabase.from('evaluations').upsert({
         submission_id: submission.id,
         teacher_id: submission.teacher_id,
         ai_analysis: justification,
@@ -112,144 +128,86 @@ const EvaluationModal: React.FC<EvaluationModalProps> = ({ submission, onClose, 
         total_score: totalScore,
         overall_grade: gradeInfo.label,
       }, { onConflict: 'submission_id' });
-      if (error) throw error;
       await supabase.from('submissions').update({ status: 'evaluated' }).eq('id', submission.id);
-      alert('✅ تم اعتماد التقرير الفني بنجاح');
+      alert('✅ تم الاعتماد بنجاح');
       onClose();
-    } catch (err) { alert('خطأ في حفظ البيانات'); } finally { setIsSaving(false); }
+    } catch (e) { alert('خطأ في الحفظ'); } finally { setIsSaving(false); }
   };
 
   return (
-    <div className="fixed inset-0 z-[200] flex items-center justify-center p-4 bg-slate-900/95 backdrop-blur-lg overflow-y-auto">
-      <style type="text/css" media="print">
-        {`@page { size: A4; margin: 0; } body { visibility: hidden; } .print-container, .print-container * { visibility: visible; } .print-container { position: fixed; top: 0; left: 0; width: 210mm; padding: 15mm; background: white; }`}
-      </style>
-
-      <div className="print-container hidden font-['Tajawal'] text-black">
-        <div className="flex justify-between items-center mb-6 border-b-4 border-[#0d333f] pb-4">
-           <div className="text-[10px] font-bold">المملكة العربية السعودية<br/>وزارة التعليم<br/>ثانوية الأمير عبدالمجيد الأولى</div>
-           <img src="https://up6.cc/2026/01/176840436497671.png" className="h-16 grayscale" alt="Logo" />
-        </div>
-        <h1 className="text-center text-xl font-black mb-6">بطاقة تدقيق الأداء الوظيفي الرقمي</h1>
+    <div className="fixed inset-0 z-[200] flex items-center justify-center p-4 bg-slate-900/90 backdrop-blur-md overflow-y-auto">
+      <div className="bg-white w-full max-w-6xl rounded-[3rem] shadow-2xl flex flex-col max-h-[96vh] overflow-hidden">
         
-        <div className="grid grid-cols-2 gap-4 mb-6">
-          <div className="border border-black p-4 rounded-lg bg-slate-50">
-            <p className="text-[10px] font-bold">اسم المعلم: {submission.teacher?.full_name}</p>
-            <p className="text-[10px] font-bold">التخصص: {submission.subject}</p>
-          </div>
-          <div className="border-2 border-black p-4 rounded-lg text-center bg-slate-100">
-            <p className="text-[9px] font-black">النتيجة النهائية المستحقة</p>
-            <p className="text-4xl font-black">{totalScore}%</p>
-            <p className="text-[10px] font-bold">{gradeInfo.label}</p>
-          </div>
-        </div>
-
-        <table className="w-full border-collapse text-[9px] text-center mb-6">
-          <thead>
-            <tr className="bg-slate-200">
-              <th className="border border-black p-2 w-10">م</th>
-              <th className="border border-black p-2 text-right">معيار الجودة</th>
-              <th className="border border-black p-2 w-20">الوزن النسبي</th>
-              <th className="border border-black p-2 w-20">الدرجة المكتسبة</th>
-            </tr>
-          </thead>
-          <tbody>
-            {EVALUATION_CRITERIA.map((c, idx) => (
-              <tr key={c.id}>
-                <td className="border border-black p-2">{idx + 1}</td>
-                <td className="border border-black p-2 text-right font-bold">{c.label}</td>
-                <td className="border border-black p-2">{c.weight}%</td>
-                <td className="border border-black p-2 font-black">{calculateWeighted(c.id).toFixed(1)}%</td>
-              </tr>
-            ))}
-            <tr className="bg-slate-100 font-black h-12 border-t-4 border-black text-[12px]">
-              <td colSpan={2} className="border border-black p-2 text-right">إجمالي نقاط الأداء المكتسبة</td>
-              <td className="border border-black p-2">100%</td>
-              <td className="border border-black p-2">{totalScore}%</td>
-            </tr>
-          </tbody>
-        </table>
-
-        <div className="border border-black p-4 rounded-lg bg-slate-50">
-          <p className="text-[10px] font-black mb-2 underline">تقرير التدقيق الفني (نقد الأدلة):</p>
-          <p className="text-[9px] leading-relaxed whitespace-pre-wrap italic">{justification}</p>
-        </div>
-
-        <div className="mt-10 flex justify-between px-10">
-           <div className="text-center"><p className="text-[10px] font-black">توقيع المعلم</p><p className="mt-4">.................</p></div>
-           <div className="text-center"><p className="text-[10px] font-black">يعتمد مدير المدرسة: نايف الشهري</p><p className="mt-4">..................</p></div>
-        </div>
-      </div>
-
-      <div className="print:hidden bg-white w-full max-w-6xl rounded-[3rem] shadow-2xl flex flex-col max-h-[96vh] overflow-hidden border border-white/20">
+        {/* Header */}
         <div className="p-6 bg-[#0d333f] text-white flex justify-between items-center">
           <div className="flex items-center gap-4">
-            <div className="w-12 h-12 bg-moe-teal rounded-2xl flex items-center justify-center text-2xl shadow-lg">🛡️</div>
+            <div className="w-12 h-12 bg-[#009688] rounded-2xl flex items-center justify-center text-2xl">🛡️</div>
             <div>
-              <h2 className="text-xl font-black">مركز التدقيق الفني (Auditor Pro)</h2>
-              <p className="text-[10px] text-moe-teal font-black tracking-widest uppercase">وضع التدقيق الصارم مفعل</p>
+              <h2 className="text-xl font-black">نظام التدقيق المتسلسل (Turbo Analysis)</h2>
+              <p className="text-[10px] text-[#009688] font-bold">معالجة آمنة لعدد غير محدود من الملفات</p>
             </div>
           </div>
-          <button onClick={onClose} className="w-10 h-10 rounded-full hover:bg-white/10 flex items-center justify-center text-xl transition-colors">✕</button>
+          <button onClick={onClose} className="text-xl">✕</button>
         </div>
 
         <div className="flex-1 overflow-y-auto p-10 bg-[#fbfcfd]">
           <div className="grid lg:grid-cols-2 gap-12">
             
+            {/* Left: Criteria */}
             <div className="space-y-4">
-              <h3 className="text-[11px] font-black text-slate-400 uppercase tracking-widest mb-4">كشف المعايير والأوزان النسبية</h3>
+              <h3 className="text-xs font-black text-slate-400 uppercase tracking-widest">المعايير والدرجات</h3>
               <div className="grid gap-2">
                 {EVALUATION_CRITERIA.map(c => (
-                  <div key={c.id} className="p-4 bg-white rounded-2xl border border-slate-100 flex justify-between items-center hover:border-moe-teal transition-all group">
+                  <div key={c.id} className="p-4 bg-white rounded-2xl border border-slate-100 flex justify-between items-center group">
                     <div>
-                      <span className="text-[11px] font-black text-slate-700 block">{c.label}</span>
-                      <span className="text-[9px] text-slate-400 font-bold">الوزن: {c.weight}% | المكتسب: <span className="text-moe-teal font-black">{calculateWeighted(c.id).toFixed(1)}%</span></span>
+                      <span className="text-xs font-black text-slate-700 block">{c.label}</span>
+                      <span className="text-[10px] text-slate-400 font-bold">الوزن: {c.weight}% | المكتسب: <span className="text-[#009688] font-black">{calculateWeighted(c.id).toFixed(1)}%</span></span>
                     </div>
                     <select 
-                      disabled={isViewOnly}
+                      disabled={isViewOnly || isAnalyzing}
                       value={scores[c.id]} 
                       onChange={e => setScores(p => ({...p, [c.id]: parseInt(e.target.value)}))}
-                      className="bg-slate-50 px-4 py-2 rounded-xl text-xs font-black text-moe-teal outline-none border border-transparent focus:border-moe-teal/30 appearance-none text-center min-w-[80px]"
+                      className="bg-slate-50 px-3 py-2 rounded-xl text-xs font-black outline-none border border-transparent focus:border-[#009688]"
                     >
-                      {[5,4,3,2,1,0].map(v => <option key={v} value={v}>{v === 0 ? '❌ 0' : `⭐ ${v}`}</option>)}
+                      {[5,4,3,2,1,0].map(v => <option key={v} value={v}>⭐ {v}</option>)}
                     </select>
                   </div>
                 ))}
               </div>
             </div>
 
+            {/* Right: Analysis & Results */}
             <div className="space-y-8">
-              <div className="bg-moe-navy p-10 rounded-[2.5rem] text-white text-center shadow-xl relative overflow-hidden">
-                <div className="absolute inset-0 opacity-10 bg-[radial-gradient(circle_at_center,_var(--tw-gradient-stops))] from-moe-teal to-transparent" />
-                <p className="text-xs font-bold opacity-60 mb-2 uppercase tracking-widest">إجمالي درجة الأداء</p>
-                <h4 className="text-9xl font-black tracking-tighter mb-4">{totalScore}%</h4>
-                <div className={`text-sm font-black px-8 py-2 bg-white/5 rounded-full border border-white/10 inline-block ${gradeInfo.color}`}>
+              <div className="bg-[#0d333f] p-10 rounded-[2.5rem] text-white text-center shadow-xl">
+                <p className="text-xs font-bold opacity-60 mb-2">إجمالي الدرجة المستحقة</p>
+                <h4 className="text-8xl font-black mb-4">{totalScore}%</h4>
+                <div className={`px-6 py-2 bg-white/10 rounded-full inline-block font-black text-sm ${gradeInfo.color}`}>
                   {gradeInfo.label}
                 </div>
               </div>
 
               {isAnalyzing ? (
-                <div className="bg-white p-12 rounded-[3rem] border-2 border-moe-teal border-dashed text-center space-y-6 shadow-sm">
-                  <div className="relative">
-                    <div className="w-16 h-16 border-4 border-moe-teal border-t-transparent rounded-full animate-spin mx-auto" />
-                    <div className="absolute inset-0 flex items-center justify-center text-xs font-black text-moe-teal">AI</div>
+                <div className="bg-white p-10 rounded-[2.5rem] border-2 border-dashed border-[#009688] text-center space-y-6">
+                  <div className="w-full bg-slate-100 h-3 rounded-full overflow-hidden">
+                    <div 
+                      className="bg-[#009688] h-full transition-all duration-500" 
+                      style={{ width: `${(progress.current / (progress.total || 1)) * 100}%` }}
+                    />
                   </div>
-                  <div className="space-y-2">
-                    <p className="text-base font-black text-moe-navy animate-pulse">{analysisStatus}</p>
-                    <p className="text-[10px] text-slate-400 font-bold">هذه العملية قد تستغرق من 20 إلى 40 ثانية حسب سرعة جوجل درايف</p>
-                  </div>
+                  <p className="font-black text-[#0d333f] animate-pulse">{progress.status}</p>
+                  <p className="text-[10px] text-slate-400 font-bold">ملف {progress.current} من أصل {progress.total}</p>
                 </div>
               ) : (
                 <div className="grid grid-cols-2 gap-4">
                   {!isViewOnly && (
                     <>
-                      <button onClick={runAIAnalysis} className="col-span-2 py-5 bg-moe-teal text-white rounded-2xl font-black shadow-lg hover:brightness-110 active:scale-[0.98] transition-all">
-                        🔍 تشغيل التدقيق الفني المعتمد (Gemini 3 Pro)
+                      <button onClick={runAdvancedAnalysis} className="col-span-2 py-5 bg-[#009688] text-white rounded-2xl font-black shadow-lg">
+                        🚀 تشغيل التحليل المتعدد (آمن وشامل)
                       </button>
-                      <button onClick={saveEvaluation} disabled={isSaving} className="py-5 bg-moe-navy text-white rounded-2xl font-black shadow-lg hover:brightness-125 transition-all">
-                        {isSaving ? 'جاري الحفظ...' : 'اعتماد التقييم'}
+                      <button onClick={saveEvaluation} disabled={isSaving} className="py-5 bg-[#0d333f] text-white rounded-2xl font-black">
+                        {isSaving ? 'جاري الحفظ...' : 'اعتماد الدرجات'}
                       </button>
-                      <button onClick={() => window.print()} className="py-5 bg-white text-moe-navy border border-slate-200 rounded-2xl font-black hover:bg-slate-50 transition-all">
+                      <button onClick={() => window.print()} className="py-5 bg-white border border-slate-200 text-[#0d333f] rounded-2xl font-black">
                         🖨️ طباعة التقرير
                       </button>
                     </>
@@ -257,13 +215,14 @@ const EvaluationModal: React.FC<EvaluationModalProps> = ({ submission, onClose, 
                 </div>
               )}
 
-              <div className="bg-white p-8 rounded-[2.5rem] border border-slate-100 shadow-sm relative">
-                <div className="absolute -top-3 right-8 bg-[#0d333f] px-4 py-1 rounded-full text-[10px] font-black text-white">تقرير المدقق (نقد الأدلة)</div>
-                <div className="w-full h-64 text-sm font-bold leading-relaxed bg-slate-50/50 p-6 rounded-2xl overflow-y-auto whitespace-pre-wrap text-slate-600 border border-slate-50 custom-scrollbar">
-                  {justification || 'اضغط على زر التدقيق أعلاه لفحص المجلد نقدياً...'}
+              <div className="bg-white p-8 rounded-[2.5rem] border border-slate-100 shadow-sm">
+                <p className="text-xs font-black text-slate-400 mb-4 uppercase">التقرير الفني للمدقق</p>
+                <div className="text-sm font-bold leading-relaxed bg-slate-50 p-6 rounded-2xl h-60 overflow-y-auto whitespace-pre-wrap">
+                  {justification || 'اضغط "تشغيل التحليل" لفحص كافة الملفات مجتمعة...'}
                 </div>
               </div>
             </div>
+
           </div>
         </div>
       </div>
