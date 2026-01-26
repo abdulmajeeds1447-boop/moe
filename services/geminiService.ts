@@ -1,4 +1,3 @@
-
 export const analyzeTeacherReport = async (driveLink: string) => {
   try {
     const response = await fetch('/api/analyze', {
@@ -7,27 +6,32 @@ export const analyzeTeacherReport = async (driveLink: string) => {
       body: JSON.stringify({ link: driveLink }),
     });
 
+    const contentType = response.headers.get("content-type");
+    
+    // في حال رجع Vercel خطأ 504 (Timeout) ستكون الاستجابة HTML
+    if (!contentType || !contentType.includes("application/json")) {
+      throw new Error('تجاوزت العملية 10 ثوانٍ. يرجى التأكد من أن الملف الأول في المجلد هو تقرير PDF واضح وصغير الحجم.');
+    }
+
     const result = await response.json();
 
     if (!response.ok) {
-      if (response.status === 429) {
-        throw new Error('عذراً، تم الوصول للحد الأقصى لطلبات التحليل المجانية المتاحة حالياً. يرجى الانتظار دقيقة واحدة ثم المحاولة مرة أخرى.');
-      }
-      const errorMessage = result.details ? `${result.error}: ${result.details}` : (result.error || 'فشل التحليل');
-      throw new Error(errorMessage);
+      throw new Error(result.error || 'فشل التحليل الذكي');
     }
-    
+
     if (result.suggested_scores) {
       const fixedScores: Record<number, number> = {};
-      for (let i = 1; i <= 11; i++) {
-        fixedScores[i] = Number(result.suggested_scores[i.toString()] || result.suggested_scores[i] || 0);
+      for (let j = 1; j <= 11; j++) {
+        const val = result.suggested_scores[j.toString()] || result.suggested_scores[j];
+        fixedScores[j] = Number(val !== undefined ? val : 0);
       }
       result.suggested_scores = fixedScores;
     }
-    
+
     return result;
+
   } catch (error: any) {
-    console.error("AI Analysis Client Error:", error);
-    throw error;
+    console.error("Service Error:", error);
+    throw new Error(error.message || 'خطأ في الاتصال بالخادم');
   }
 };

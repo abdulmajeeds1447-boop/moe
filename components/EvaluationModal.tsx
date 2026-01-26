@@ -1,9 +1,8 @@
 'use client';
 
 import React, { useState, useEffect } from 'react';
-import { Submission, EVALUATION_CRITERIA } from '../types';
-import { analyzeTeacherReport } from '../services/geminiService';
-import { supabase } from '../services/supabaseClient';
+import { Submission, EVALUATION_CRITERIA } from '../types.ts';
+import { supabase } from '../services/supabaseClient.ts';
 
 interface EvaluationModalProps {
   submission: Submission;
@@ -12,360 +11,294 @@ interface EvaluationModalProps {
 }
 
 const EvaluationModal: React.FC<EvaluationModalProps> = ({ submission, onClose, isViewOnly = false }) => {
-  const [justification, setJustification] = useState('');
-  const [isAnalyzing, setIsAnalyzing] = useState(false);
-  const [analysisStatus, setAnalysisStatus] = useState('');
-  const [isSaving, setIsSaving] = useState(false);
+  const [justifications, setJustifications] = useState<string[]>([]);
+  const [strengths, setStrengths] = useState<string[]>([]);
+  const [weaknesses, setWeaknesses] = useState<string[]>([]);
+  const [recommendation, setRecommendation] = useState('');
   
+  const [isAnalyzing, setIsAnalyzing] = useState(false);
+  const [progress, setProgress] = useState({ current: 0, total: 0, status: '', step: 1 });
+  const [isSaving, setIsSaving] = useState(false);
   const [scores, setScores] = useState<Record<number, number>>({
     1: 0, 2: 0, 3: 0, 4: 0, 5: 0, 6: 0, 7: 0, 8: 0, 9: 0, 10: 0, 11: 0
   });
 
-  useEffect(() => { 
-    loadExistingEvaluation(); 
-  }, [submission.id]);
+  useEffect(() => { loadData(); }, [submission.id]);
 
-  const loadExistingEvaluation = async () => {
-    const { data } = await supabase.from('evaluations').select('*').eq('submission_id', submission.id).maybeSingle();
-    if (data) {
-      setJustification(data.ai_analysis || '');
-      if (data.scores) {
-        const normalized: Record<number, number> = {};
-        Object.entries(data.scores).forEach(([k, v]) => normalized[Number(k)] = Number(v));
-        setScores(normalized);
-      }
-    }
-  };
-
-  const calculateTotal = () => {
-    let total = 0;
-    EVALUATION_CRITERIA.forEach(c => { 
-      const rawScore = Number(scores[c.id] || 0);
-      const weightedScore = (rawScore / 5) * c.weight;
-      total += weightedScore;
-    });
-    return Math.min(100, Math.round(total)); 
-  };
-
-  const getGradeInfo = (t: number) => {
-    if (t >= 90) return { label: 'ممتاز / رائد', value: 5, color: 'text-emerald-600' };
-    if (t >= 80) return { label: 'جيد جداً / قوي', value: 4, color: 'text-blue-600' };
-    if (t >= 70) return { label: 'جيد', value: 3, color: 'text-cyan-600' };
-    if (t >= 60) return { label: 'مرضي / مقبول', value: 2, color: 'text-amber-600' };
-    return { label: 'غير مرضي / ضعيف', value: 1, color: 'text-red-600' };
-  };
-
-  const totalScore = calculateTotal();
-  const gradeInfo = getGradeInfo(totalScore);
-
-  const runAIAnalysis = async () => {
-    if (isViewOnly) return;
-    setIsAnalyzing(true);
-    setAnalysisStatus('جاري تحليل الشواهد بدقة تربوية صارمة...');
+  const loadData = async () => {
     try {
-      const data = await analyzeTeacherReport(submission.drive_link);
+      const { data } = await supabase.from('evaluations').select('*').eq('submission_id', submission.id).maybeSingle();
       if (data) {
-        setJustification(data.justification || '');
-        if (data.suggested_scores) {
-          const newScores = { ...scores };
-          Object.entries(data.suggested_scores).forEach(([k, v]) => {
-            const numKey = Number(k);
-            if (numKey >= 1 && numKey <= 11) {
-              newScores[numKey] = Number(v);
-            }
-          });
-          setScores(newScores);
+        if (data.scores) {
+          const norm: Record<number, number> = {};
+          Object.entries(data.scores).forEach(([k, v]) => norm[Number(k)] = Number(v));
+          setScores(norm);
+        }
+        if (data.ai_analysis) {
+          const lines = data.ai_analysis.split('\n');
+          const jusPart = lines.find(l => l.startsWith('المبررات:'))?.replace('المبررات:', '').trim();
+          setJustifications(jusPart ? jusPart.split(' | ') : []);
+          
+          const strPart = lines.find(l => l.startsWith('نقاط القوة:'))?.replace('نقاط القوة:', '').trim();
+          setStrengths(strPart ? strPart.split(', ') : []);
+          
+          const weakPart = lines.find(l => l.startsWith('نقاط التطوير:'))?.replace('نقاط التطوير:', '').trim();
+          setWeaknesses(weakPart ? weakPart.split(', ') : []);
+          
+          const recPart = lines.find(l => l.startsWith('التوصية:'))?.replace('التوصية:', '').trim();
+          setRecommendation(recPart || '');
         }
       }
+    } catch (e) { console.error(e); }
+  };
+
+  const runDecisionProcess = async () => {
+    if (isViewOnly) return;
+    setIsAnalyzing(true);
+    setProgress({ current: 0, total: 0, status: 'جاري الاتصال بقاعدة بيانات Google Drive...', step: 1 });
+
+    try {
+      // 1. Scan Folder
+      const scanRes = await fetch('/api/drive/scan', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ link: submission.drive_link })
+      });
+      const { files, error: scanErr } = await scanRes.json();
+      if (scanErr) throw new Error(scanErr);
+      if (!files || files.length === 0) throw new Error("المجلد فارغ أو لا يحتوي على ملفات مدعومة (PDF/صور)");
+      
+      let allEvidence = "";
+      setProgress({ current: 0, total: files.length, status: `تم العثور على ${files.length} ملفات. جاري استخراج الشواهد...`, step: 2 });
+
+      // 2. Partial Analysis (Evidence Extraction)
+      for (let i = 0; i < files.length; i++) {
+        const file = files[i];
+        setProgress(p => ({ ...p, current: i + 1, status: `جاري فحص تربوي دقيق للملف: ${file.name}...` }));
+        const res = await fetch('/api/analyze', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ mode: 'partial', fileId: file.id, mimeType: file.mimeType, fileName: file.name })
+        });
+        const data = await res.json();
+        if (data.findings) allEvidence += `--- بداية شواهد ملف (${file.name}) ---\n${data.findings}\n--- نهاية شواهد الملف ---\n\n`;
+      }
+
+      // 3. Final Decision (Expert Logic)
+      setProgress(p => ({ ...p, status: 'جاري انعقاد لجنة التحكيم الرقمية لإصدار الدرجات والمبررات...', step: 3 }));
+      const finalRes = await fetch('/api/analyze', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ mode: 'final', previousFindings: allEvidence })
+      });
+      const result = await finalRes.json();
+
+      if (result.scores) {
+        // تحديث الواجهة فوراً بالنتائج
+        const norm: Record<number, number> = {};
+        Object.entries(result.scores).forEach(([k, v]) => norm[Number(k)] = Number(v));
+        setScores(norm);
+        setJustifications(result.justifications || []);
+        setStrengths(result.strengths || []);
+        setWeaknesses(result.weaknesses || []);
+        setRecommendation(result.recommendation || '');
+        
+        // حفظ تلقائي للنتيجة بعد التحليل
+        const fullReport = `المبررات: ${(result.justifications || []).join(' | ')}\nنقاط القوة: ${(result.strengths || []).join(', ')}\nنقاط التطوير: ${(result.weaknesses || []).join(', ')}\nالتوصية: ${result.recommendation || ''}`;
+        await supabase.from('evaluations').upsert({
+          submission_id: submission.id,
+          teacher_id: submission.teacher_id,
+          ai_analysis: fullReport,
+          scores: norm,
+          total_score: calculateScore(norm),
+          overall_grade: getGradeStyle(calculateScore(norm)).label,
+        }, { onConflict: 'submission_id' });
+        
+        await supabase.from('submissions').update({ status: 'evaluated' }).eq('id', submission.id);
+      }
     } catch (err: any) {
-      alert(`عذراً، فشل التحليل: ${err.message}`);
+      alert(`عذراً، حدث خطأ: ${err.message}`);
     } finally {
       setIsAnalyzing(false);
-      setAnalysisStatus('');
     }
   };
 
-  const saveEvaluation = async () => {
-    if (isViewOnly) return;
-    setIsSaving(true);
-    try {
-      const total = calculateTotal();
-      const info = getGradeInfo(total);
-      
-      const { error } = await supabase.from('evaluations').upsert({
-        submission_id: submission.id,
-        teacher_id: submission.teacher_id,
-        ai_analysis: justification,
-        scores: scores,
-        total_score: total,
-        overall_grade: info.label,
-      }, { onConflict: 'submission_id' });
-      
-      if (error) throw error;
-      await supabase.from('submissions').update({ status: 'evaluated' }).eq('id', submission.id);
-      alert('✅ تم اعتماد تقييم الأداء بنجاح');
-      onClose();
-    } catch (err) { alert('خطأ في حفظ البيانات'); } finally { setIsSaving(false); }
+  const calculateScore = (currentScores: Record<number, number>) => {
+    let t = 0;
+    EVALUATION_CRITERIA.forEach(c => { t += ((currentScores[c.id] || 0) / 5) * c.weight; });
+    return Math.round(t * 10) / 10;
   };
 
-  const handlePrint = () => { window.print(); };
-
-  const sendWhatsApp = () => {
-    const teacherName = submission.teacher?.full_name || 'الزميل المعلم';
-    const cleanJustification = (justification || '').replace(/\*\*/g, '').replace(/\*/g, '-');
-    const message = `*نتيجة الأداء الوظيفي* 📄%0A%0A` +
-      `*المعلم:* ${teacherName}%0A` +
-      `*الدرجة النهائية:* ${totalScore}% (${gradeInfo.label})%0A` +
-      `*المعدل:* ${gradeInfo.value} من 5%0A%0A` +
-      `*ملحوظات المدير:*%0A${cleanJustification}%0A%0A` +
-      `إدارة المدرسة`;
-    window.open(`https://wa.me/?text=${message}`, '_blank');
-  };
+  const totalScore = calculateScore(scores);
+  
+  function getGradeStyle(t: number) {
+    if (t >= 90) return { label: 'ممتاز / أداء رائد', color: 'text-emerald-600', bg: 'bg-emerald-50' };
+    if (t >= 80) return { label: 'جيد جداً / أداء قوي', color: 'text-blue-600', bg: 'bg-blue-50' };
+    if (t >= 70) return { label: 'جيد / أداء مقبول', color: 'text-cyan-600', bg: 'bg-cyan-50' };
+    return { label: 'يحتاج تطوير مكثف / فجوات أداء', color: 'text-red-600', bg: 'bg-red-50' };
+  }
+  
+  const grade = getGradeStyle(totalScore);
 
   return (
-    <div className="fixed inset-0 z-[200] flex items-center justify-center p-4 bg-slate-900/95 backdrop-blur-lg overflow-y-auto">
-      
-      {/* --- إصلاح الطباعة: استخدام visibility لضمان ظهور المحتوى --- */}
-      <style type="text/css" media="print">
-        {`
-          @page { size: A4; margin: 0; }
-          body { visibility: hidden; background: white; }
-          
-          /* إظهار حاوية الطباعة فقط وتثبيتها في الأعلى */
-          .print-container, .print-container * { visibility: visible; }
-          .print-container {
-            display: flex !important;
-            flex-direction: column;
-            position: fixed;
-            top: 0;
-            left: 0;
-            width: 210mm;
-            height: 297mm;
-            background: white;
-            z-index: 9999;
-            padding: 15mm;
-            box-sizing: border-box;
-          }
-
-          /* تنسيقات الجدول الاحترافي */
-          .print-header { border-bottom: 2px solid #000; padding-bottom: 10px; margin-bottom: 20px; }
-          .print-table th { background-color: #f0f0f0 !important; color: black !important; border: 1px solid #000 !important; font-weight: 900 !important; -webkit-print-color-adjust: exact; }
-          .print-table td { border: 1px solid #000 !important; color: black !important; padding: 4px; }
-          .print-box { border: 1px solid #000; border-radius: 8px; padding: 10px; }
-        `}
-      </style>
-
-      {/* --- محتوى الطباعة (مخفي بالشاشة، ظاهر بالطباعة) --- */}
-      <div className="print-container hidden font-['Tajawal'] text-black">
+    <div className="fixed inset-0 z-[200] flex items-center justify-center p-4 bg-slate-900/98 backdrop-blur-2xl overflow-y-auto">
+      <div className="bg-white w-full max-w-7xl rounded-[4rem] shadow-[0_0_100px_rgba(0,0,0,0.5)] flex flex-col max-h-[96vh] overflow-hidden border-4 border-white/20 relative">
         
-        {/* الترويسة الرسمية */}
-        <div className="print-header flex justify-between items-center shrink-0">
-          <div className="text-[10px] font-bold text-center leading-relaxed w-1/3">
-            <p>المملكة العربية السعودية</p>
-            <p>وزارة التعليم</p>
-            <p>الإدارة العامة للتعليم</p>
-            <p>ثانوية الأمير عبدالمجيد الأولى</p>
+        {/* Loading Overlay - يظهر أثناء التحليل فقط */}
+        {isAnalyzing && (
+          <div className="absolute inset-0 z-[300] bg-[#0d333f]/95 backdrop-blur-md flex flex-col items-center justify-center text-center p-10 space-y-12 animate-in fade-in duration-500">
+             <div className="relative">
+                <div className="w-40 h-40 border-8 border-white/5 rounded-full"></div>
+                <div className="absolute inset-0 border-8 border-moe-teal border-t-transparent rounded-full animate-spin"></div>
+                <div className="absolute inset-0 flex items-center justify-center text-4xl">🔎</div>
+             </div>
+             
+             <div className="max-w-2xl space-y-6">
+                <h2 className="text-4xl font-black text-white tracking-tight leading-tight">
+                   {progress.step === 1 && "جاري الاتصال بالدليل الرقمي..."}
+                   {progress.step === 2 && "المحرك التربوي يفحص المستندات الآن..."}
+                   {progress.step === 3 && "لجنة التحكيم تصيغ القرار النهائي..."}
+                </h2>
+                <p className="text-moe-teal text-xl font-bold animate-pulse">{progress.status}</p>
+                
+                <div className="w-full bg-white/5 h-4 rounded-full overflow-hidden border border-white/10 p-1">
+                   <div 
+                     className="bg-gradient-to-r from-moe-teal to-emerald-400 h-full rounded-full transition-all duration-1000 ease-out shadow-[0_0_20px_rgba(0,150,136,0.5)]" 
+                     style={{ width: `${(progress.current / (progress.total || 1)) * 100}%` }} 
+                   />
+                </div>
+                
+                <div className="flex justify-center gap-8 text-white/40 text-[10px] font-black uppercase tracking-widest">
+                   <span className={progress.step >= 1 ? "text-moe-teal" : ""}>1. المسح الضوئي</span>
+                   <span className={progress.step >= 2 ? "text-moe-teal" : ""}>2. استخراج الشواهد</span>
+                   <span className={progress.step >= 3 ? "text-moe-teal" : ""}>3. الاعتماد التربوي</span>
+                </div>
+             </div>
+             
+             <div className="bg-white/5 p-6 rounded-3xl border border-white/10 max-w-lg">
+                <p className="text-white/60 text-xs leading-relaxed font-bold italic">
+                   "يرجى عدم إغلاق النافذة.. الخبير الرقمي يقوم بمراجعة دقيقة لكل ورقة لضمان عدالة التقييم ومهنية المبررات."
+                </p>
+             </div>
           </div>
-          <div className="text-center w-1/3">
-             <img src="https://up6.cc/2026/01/176840436497671.png" className="h-16 object-contain mb-1 mx-auto grayscale" alt="Logo" />
-             <h1 className="text-lg font-black mt-2 border-2 border-black px-4 py-1 rounded-lg inline-block">بطاقة الأداء الوظيفي</h1>
-          </div>
-          <div className="text-[10px] font-bold text-left leading-relaxed w-1/3">
-            <p>التاريخ: {new Date().toLocaleDateString('ar-SA')}</p>
-            <p>العام الدراسي: 1446هـ</p>
-            <p>رقم الملف: {submission.id.slice(0, 8)}</p>
-          </div>
-        </div>
+        )}
 
-        {/* بيانات المعلم والدرجة - تصميم مضغوط */}
-        <div className="flex gap-4 mb-4 shrink-0">
-          <div className="flex-1 print-box bg-slate-50">
-             <table className="w-full text-[10px]">
-               <tbody>
-                 <tr><td className="py-1 font-bold w-20 border-0">اسم المعلم:</td><td className="border-0">{submission.teacher?.full_name}</td></tr>
-                 <tr><td className="py-1 font-bold border-0">المادة:</td><td className="border-0">{submission.subject}</td></tr>
-                 <tr><td className="py-1 font-bold border-0">المقيم:</td><td className="border-0">مدير المدرسة (نايف الشهري)</td></tr>
-               </tbody>
-             </table>
-          </div>
-          <div className="w-32 border-2 border-black rounded-lg flex flex-col items-center justify-center bg-slate-50 p-2">
-             <p className="text-[9px] font-bold">الدرجة المستحقة</p>
-             <h2 className="text-3xl font-black my-1">{totalScore}</h2>
-             <p className="text-[9px] font-bold">{gradeInfo.label}</p>
-          </div>
-        </div>
-
-        {/* الجدول التفصيلي */}
-        <div className="mb-4 flex-1">
-          <table className="print-table w-full border-collapse text-[9px] text-center">
-            <thead>
-              <tr className="h-8">
-                <th className="w-8">م</th>
-                <th className="text-right px-2">معيار التقييم</th>
-                <th className="w-12">الوزن</th>
-                <th className="w-16">الدرجة</th>
-              </tr>
-            </thead>
-            <tbody>
-              {EVALUATION_CRITERIA.map((c, idx) => {
-                const rawScore = Number(scores[c.id] || 0);
-                const weightedScore = (rawScore / 5) * c.weight;
-                return (
-                  <tr key={c.id}>
-                    <td className="font-bold bg-slate-50">{idx + 1}</td>
-                    <td className="text-right px-2 font-semibold">{c.label}</td>
-                    <td>{c.weight}</td>
-                    <td className="font-black bg-slate-50">
-                       {Number.isInteger(weightedScore) ? weightedScore : weightedScore.toFixed(1)}
-                    </td>
-                  </tr>
-                );
-              })}
-              <tr className="bg-slate-200 font-black h-8 border-t-2 border-black">
-                <td colSpan={2} className="text-right px-2">المجموع الكلي</td>
-                <td>100</td>
-                <td className="text-[12px]">{totalScore}</td>
-              </tr>
-            </tbody>
-          </table>
-        </div>
-
-        {/* الملاحظات - مساحة ثابتة */}
-        <div className="print-box h-28 mb-2 relative shrink-0">
-           <h3 className="font-black text-[10px] border-b border-black inline-block mb-1">رأي الخبير التربوي وملاحظات التحسين:</h3>
-           <p className="text-[9px] leading-relaxed text-justify whitespace-pre-wrap absolute inset-2 top-8 overflow-hidden">
-             {justification || 'لا توجد ملاحظات إضافية.'}
-           </p>
-        </div>
-
-        {/* التواقيع */}
-        <div className="flex justify-between items-end mt-auto px-6 pb-2 shrink-0">
-          <div className="text-center w-40">
-            <p className="font-bold text-[10px] mb-6">توقيع المعلم/ة</p>
-            <div className="border-t border-dotted border-black pt-1">
-              <p className="text-[9px]">{submission.teacher?.full_name}</p>
-            </div>
-          </div>
-          <div className="text-center w-40">
-            <p className="font-bold text-[10px] mb-6">اعتماد مدير المدرسة</p>
-            <div className="border-t border-dotted border-black pt-1">
-              <p className="font-black text-[10px]">نايف أحمد الشهري</p>
-              <p className="text-[8px] mt-1 text-gray-500">وثيقة رقمية معتمدة</p>
-            </div>
-          </div>
-        </div>
-
-      </div>
-
-      {/* --- الواجهة التفاعلية (Modal) - مخفية عند الطباعة --- */}
-      <div className="print:hidden bg-white w-full max-w-6xl rounded-[3rem] shadow-2xl flex flex-col max-h-[96vh] overflow-hidden">
-        {/* رأس النافذة */}
-        <div className="p-6 bg-moe-navy text-white flex justify-between items-center shrink-0">
-          <div className="flex items-center gap-4">
-            <div className="w-12 h-12 bg-moe-teal rounded-2xl flex items-center justify-center text-2xl shadow-lg">🤖</div>
+        {/* Modal Header */}
+        <div className="p-8 bg-[#0d333f] text-white flex justify-between items-center no-print shrink-0">
+          <div className="flex items-center gap-6">
+            <div className="w-16 h-16 bg-[#009688] rounded-[1.5rem] flex items-center justify-center text-3xl shadow-2xl rotate-3">⚖️</div>
             <div>
-              <h2 className="text-xl font-black">نظام التحليل التربوي الذكي</h2>
-              <p className="text-[10px] text-moe-teal font-bold tracking-widest">إشراف: نايف أحمد الشهري</p>
+              <h2 className="text-2xl font-black">المحضر الرسمي لتقييم الأداء</h2>
+              <p className="text-[10px] text-moe-teal font-black uppercase tracking-[0.2em] mt-1">نظام التحليل الرقمي المعتمد | Gemini 3 Pro</p>
             </div>
           </div>
-          <button onClick={onClose} className="w-10 h-10 rounded-full hover:bg-white/10 flex items-center justify-center text-2xl transition-colors">✕</button>
+          <button onClick={onClose} className="w-14 h-14 rounded-2xl bg-white/5 hover:bg-red-500/20 hover:text-red-500 flex items-center justify-center text-2xl transition-all border border-white/10">✕</button>
         </div>
 
-        <div className="flex-1 overflow-y-auto p-10 bg-slate-50/50">
-          <div className="grid lg:grid-cols-2 gap-12">
+        <div className="flex-1 overflow-y-auto p-12 bg-[#f8fafc]">
+          <div className="grid lg:grid-cols-2 gap-16">
             
-            {/* القائمة اليمنى: المعايير */}
-            <div className="space-y-4">
-              <h3 className="text-[11px] font-black text-slate-400 uppercase tracking-widest mb-2">تقدير المعايير (0-5)</h3>
-              <div className="grid gap-2">
-                {EVALUATION_CRITERIA.map(c => (
-                  <div key={c.id} className="p-3.5 bg-white rounded-xl border border-slate-100 flex justify-between items-center group hover:border-moe-teal transition-all shadow-sm">
-                    <div className="flex flex-col">
-                      <span className="text-[11px] font-black text-slate-700">{c.label}</span>
-                      <span className="text-[9px] text-slate-400 font-bold">الوزن: {c.weight}%</span>
+            {/* Right: Matrix */}
+            <div className="space-y-6">
+              <div className="flex justify-between items-center px-4">
+                <h3 className="text-xs font-black text-slate-400 uppercase tracking-widest">مصفوفة التقييم والتدليل</h3>
+                {totalScore > 0 && <span className="text-[10px] font-bold text-emerald-600 bg-emerald-50 px-4 py-1.5 rounded-full border border-emerald-100 animate-bounce">تم استخراج النتائج آلياً ✅</span>}
+              </div>
+              
+              <div className="grid gap-5">
+                {EVALUATION_CRITERIA.map((c, idx) => (
+                  <div key={c.id} className="p-6 bg-white rounded-[2.5rem] border border-slate-100 shadow-sm hover:shadow-xl hover:scale-[1.02] transition-all group relative overflow-hidden">
+                    <div className="flex justify-between items-start">
+                      <div className="flex-1">
+                        <span className="text-sm font-black text-slate-800 block mb-3 group-hover:text-moe-teal transition-colors">{c.label}</span>
+                        <div className="p-4 bg-slate-50/80 rounded-2xl border border-slate-100 group-hover:bg-white transition-all">
+                           <p className="text-[10px] text-slate-500 font-bold leading-relaxed italic">
+                             {justifications[idx] || 'بانتظار التحليل المهني لاستخراج مبرر الدرجة بناءً على الشواهد المرفقة...'}
+                           </p>
+                        </div>
+                      </div>
+                      <div className="mr-8 flex flex-col items-center">
+                         <div className={`text-4xl font-black ${scores[c.id] > 0 ? 'text-[#0d333f]' : 'text-slate-200'} mb-1`}>{scores[c.id]}</div>
+                         <span className="text-[9px] font-black text-slate-300">/ 5</span>
+                      </div>
                     </div>
-                    <select 
-                      disabled={isViewOnly}
-                      value={scores[c.id]} 
-                      onChange={e => setScores(p => ({...p, [c.id]: parseInt(e.target.value)}))}
-                      className="bg-slate-50 px-3 py-1 rounded-lg text-xs font-black text-moe-teal outline-none focus:ring-2 focus:ring-moe-teal/20"
-                    >
-                      {[5,4,3,2,1,0].map(v => <option key={v} value={v}>{v}</option>)}
-                    </select>
+                    <div className="mt-5 pt-4 border-t border-slate-50 flex items-center gap-4">
+                       <div className="flex-1 h-2 bg-slate-100 rounded-full overflow-hidden p-0.5">
+                          <div className="bg-moe-teal h-full rounded-full transition-all duration-[2s] ease-out shadow-sm shadow-moe-teal/20" style={{ width: `${(scores[c.id] / 5) * 100}%` }} />
+                       </div>
+                       <span className="text-[9px] font-black text-moe-teal opacity-60">الوزن النسبي {c.weight}%</span>
+                    </div>
                   </div>
                 ))}
               </div>
             </div>
 
-            {/* القائمة اليسرى: النتائج والأزرار */}
-            <div className="space-y-8">
-              
-              <div className="bg-gradient-to-br from-moe-navy to-moe-teal p-8 rounded-[2.5rem] text-white shadow-xl relative overflow-hidden flex flex-col items-center text-center justify-center gap-4">
-                <div className="relative z-10">
-                  <h4 className="text-8xl font-black tracking-tighter drop-shadow-lg">{totalScore}%</h4>
-                </div>
-                <div className="w-full h-0.5 bg-white/20 rounded-full max-w-[200px]"></div>
-                <div className="flex flex-col items-center gap-1 z-10">
-                  <div className="bg-white/10 backdrop-blur-md px-6 py-2 rounded-2xl border border-white/10 mb-2">
-                    <p className="text-sm font-bold opacity-90">المعدل: <span className="text-xl font-black text-white mx-1">{gradeInfo.value}</span> من 5</p>
-                  </div>
-                  <h3 className={`text-3xl font-black ${gradeInfo.color} drop-shadow-md mt-1`}>
-                    {gradeInfo.label}
-                  </h3>
+            {/* Left: Final Decision */}
+            <div className="space-y-12">
+              {/* Score Card */}
+              <div className="bg-[#0d333f] p-16 rounded-[4.5rem] text-white text-center shadow-2xl relative overflow-hidden group">
+                <div className="absolute top-0 left-0 w-full h-full bg-gradient-to-br from-white/10 to-transparent opacity-20 group-hover:opacity-40 transition-opacity"></div>
+                <div className="absolute -top-20 -right-20 w-64 h-64 bg-moe-teal/20 rounded-full blur-[80px]"></div>
+                
+                <p className="text-xs font-bold opacity-60 mb-4 tracking-[0.5em] uppercase relative z-10">المعدل العام للأداء الرقمي</p>
+                <h4 className="text-[11rem] font-black leading-none mb-8 tracking-tighter relative z-10 group-hover:scale-110 transition-transform duration-1000">{totalScore}%</h4>
+                
+                <div className={`px-14 py-5 rounded-full inline-block font-black text-base shadow-2xl ${grade.color} ${grade.bg} border-4 border-white/10 relative z-10 animate-in zoom-in duration-700`}>
+                  {grade.label}
                 </div>
               </div>
 
-              {/* أزرار التحكم */}
-              {isAnalyzing ? (
-                <div className="bg-white p-8 rounded-[2rem] border-2 border-moe-teal text-center space-y-4 shadow-xl">
-                  <div className="animate-spin text-3xl mx-auto">🌀</div>
-                  <p className="text-sm font-black text-moe-teal">{analysisStatus}</p>
-                </div>
-              ) : (
-                <div className="grid grid-cols-2 gap-4">
-                  
-                  {/* 1. زر عرض المجلد (يظهر للجميع: المعلم والمدير) */}
-                  <a 
-                    href={submission.drive_link} 
-                    target="_blank" 
-                    rel="noopener noreferrer"
-                    className="col-span-2 py-4 bg-blue-50 text-blue-600 border-2 border-blue-100 rounded-2xl font-black transition-all hover:bg-blue-100 hover:border-blue-200 active:scale-95 flex items-center justify-center gap-2"
+              {/* Action & Results Panel */}
+              <div className="space-y-8">
+                {!isViewOnly && totalScore === 0 && (
+                  <button 
+                    onClick={runDecisionProcess} 
+                    className="w-full py-10 bg-moe-teal text-white rounded-[3rem] font-black shadow-2xl hover:brightness-110 hover:translate-y-[-4px] active:scale-95 transition-all text-2xl flex items-center justify-center gap-6 group"
                   >
-                    <span className="text-xl">📂</span>
-                    عرض مجلد الشواهد (Drive)
-                  </a>
+                    <span className="text-4xl group-hover:rotate-12 transition-transform duration-500">🚀</span>
+                    إصدار القرار التربوي الصارم
+                  </button>
+                )}
 
-                  {/* 2. أزرار التحكم والطباعة (تظهر للمدير فقط، وتختفي عند المعلم) */}
-                  {!isViewOnly && (
-                    <>
-                      <button onClick={runAIAnalysis} className="col-span-2 py-5 bg-white border-2 border-moe-teal text-moe-teal rounded-2xl font-black hover:bg-moe-teal hover:text-white transition-all shadow-md active:scale-95">
-                        ⚡ تحليل الخبير التربوي (AI)
-                      </button>
-                      
-                      <button onClick={saveEvaluation} disabled={isSaving} className="py-5 bg-moe-navy text-white rounded-2xl font-black shadow-lg hover:brightness-110 active:scale-95">
-                        {isSaving ? 'جاري الحفظ...' : 'اعتماد الدرجات'}
-                      </button>
+                {/* AI Observations */}
+                <div className="bg-white p-12 rounded-[4rem] border border-slate-100 shadow-xl space-y-12">
+                  <div className="grid grid-cols-2 gap-12">
+                     <div className="space-y-6">
+                        <h5 className="text-[11px] font-black text-emerald-600 uppercase tracking-widest flex items-center gap-3">
+                           <span className="w-4 h-4 bg-emerald-500 rounded-full shadow-lg shadow-emerald-500/40"></span> نقاط التميز المكتشفة
+                        </h5>
+                        <div className="space-y-3">
+                           {strengths.map((s,i) => <div key={i} className="text-xs font-bold text-slate-700 bg-emerald-50/40 p-5 rounded-3xl border border-emerald-100/50 hover:bg-emerald-100 transition-colors animate-in slide-in-from-right-4 duration-500" style={{animationDelay: `${i*100}ms`}}>✅ {s}</div>)}
+                           {strengths.length === 0 && <p className="text-[11px] text-slate-400 italic font-bold text-center py-6">بانتظار التقييم لتدوين التميز...</p>}
+                        </div>
+                     </div>
+                     <div className="space-y-6">
+                        <h5 className="text-[11px] font-black text-amber-600 uppercase tracking-widest flex items-center gap-3">
+                           <span className="w-4 h-4 bg-amber-500 rounded-full shadow-lg shadow-amber-500/40"></span> فرص التطوير (الفجوات)
+                        </h5>
+                        <div className="space-y-3">
+                           {weaknesses.map((w,i) => <div key={i} className="text-xs font-bold text-slate-700 bg-amber-50/40 p-5 rounded-3xl border border-amber-100/50 hover:bg-amber-100 transition-colors animate-in slide-in-from-right-4 duration-500" style={{animationDelay: `${i*100}ms`}}>⚠ {w}</div>)}
+                           {weaknesses.length === 0 && <p className="text-[11px] text-slate-400 italic font-bold text-center py-6">بانتظار التقييم لتدوين الفجوات...</p>}
+                        </div>
+                     </div>
+                  </div>
 
-                      <button onClick={sendWhatsApp} className="py-5 bg-[#25D366] text-white rounded-2xl font-black shadow-lg hover:bg-[#20bd5a] transition-all flex items-center justify-center gap-2 active:scale-95">
-                        واتساب
-                      </button>
-
-                      {/* تم نقل زر الطباعة هنا ليظهر للمدير فقط */}
-                      <button 
-                        onClick={handlePrint} 
-                        className="col-span-2 py-5 bg-slate-100 text-moe-navy border-2 border-slate-200 rounded-2xl font-black transition-all hover:bg-white active:scale-95 flex items-center justify-center gap-2"
-                      >
-                        📄 طباعة التقرير (A4)
-                      </button>
-                    </>
+                  {recommendation && (
+                    <div className="p-12 bg-[#0d333f] text-white rounded-[3.5rem] text-center relative overflow-hidden group border-4 border-moe-teal/20 shadow-2xl">
+                       <div className="absolute top-0 right-0 w-64 h-64 bg-moe-teal/10 rounded-full -translate-y-1/2 translate-x-1/2 blur-3xl group-hover:bg-moe-teal/20 transition-colors duration-1000"></div>
+                       <h6 className="text-[10px] font-black text-moe-teal uppercase mb-6 tracking-[0.4em]">توصية المشرف التربوي النهائية:</h6>
+                       <p className="text-xl font-bold leading-relaxed italic relative z-10 text-slate-100 animate-in fade-in duration-1000">"{recommendation}"</p>
+                    </div>
                   )}
-              </div>
-              )}
+                </div>
 
-              <div className="bg-white p-6 rounded-[2.5rem] border border-slate-100 shadow-sm">
-                <h4 className="text-[11px] font-black text-slate-400 mb-4 uppercase">تبريرات التقييم:</h4>
-                <div className="w-full h-40 text-xs font-bold leading-relaxed bg-slate-50/50 p-4 rounded-xl overflow-y-auto whitespace-pre-wrap text-slate-700 border border-slate-100">
-                  {justification || 'سيقوم الخبير التربوي بكتابة التبريرات هنا...'}
+                <div className="grid grid-cols-2 gap-8 no-print">
+                   <button onClick={() => window.print()} className="py-8 bg-white border-2 border-slate-200 text-[#0d333f] rounded-[2.5rem] font-black hover:bg-slate-50 transition-all flex items-center justify-center gap-4 text-xl shadow-lg">
+                      🖨️ طباعة المحضر الرسمي
+                   </button>
+                   <button onClick={onClose} className="py-8 bg-slate-100 text-slate-500 rounded-[2.5rem] font-black hover:bg-slate-200 transition-all text-xl">
+                      إغلاق النافذة
+                   </button>
                 </div>
               </div>
             </div>

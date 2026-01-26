@@ -1,6 +1,5 @@
-
 import React, { useState } from 'react';
-import { supabase } from '../services/supabaseClient';
+import { supabase } from '../services/supabaseClient.ts';
 
 const Login: React.FC<{ onLogin: (userData: any) => void }> = ({ onLogin }) => {
   const [isSignUp, setIsSignUp] = useState(false);

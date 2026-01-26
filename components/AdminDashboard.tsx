@@ -1,8 +1,7 @@
-
 import React, { useState, useEffect } from 'react';
-import { Profile, Submission } from '../types';
-import { supabase } from '../services/supabaseClient';
-import EvaluationModal from './EvaluationModal';
+import { Profile, Submission } from '../types.ts';
+import { supabase } from '../services/supabaseClient.ts';
+import EvaluationModal from './EvaluationModal.tsx';
 
 interface AdminDashboardProps {
   user: Profile;
