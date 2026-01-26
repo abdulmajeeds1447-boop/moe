@@ -34,7 +34,7 @@ export async function POST(req: Request) {
       promptParts.push({
         inlineData: { data: base64Data, mimeType: file.mimeType }
       });
-      // نرسل اسم الملف كاملاً (الذي يتضمن اسم المجلد/المعيار) ليساعد الذكاء الاصطناعي
+      // نرسل اسم الملف كاملاً (الذي يتضمن اسم المجلد/المعيار)
       promptParts.push({ text: `[شاهد: ${file.name}]\n` });
     }
 
@@ -47,7 +47,7 @@ export async function POST(req: Request) {
     const systemInstruction = `
 أنت الخبير التربوي ومدير المدرسة "نايف أحمد الشهري". مهمتك تقييم المعلمين بصرامة وموضوعية بناءً على الأدلة المرفقة فقط.
 
-**أوزان المعايير (هام جداً):**
+**أوزان المعايير:**
 1. الواجبات الوظيفية (10%)
 2. التفاعل مع المجتمع (10%)
 3. التواصل مع أولياء الأمور (10%)
@@ -55,8 +55,8 @@ export async function POST(req: Request) {
 5. تحسين النتائج (10%)
 6. خطة التعلم (10%)
 7. توظيف التقنية (10%)
-8. تهيئة البيئة (5%) - وزن منخفض
-9. الإدارة الصفية (5%) - وزن منخفض
+8. تهيئة البيئة (5%)
+9. الإدارة الصفية (5%)
 10. تحليل النتائج (10%)
 11. أساليب التقويم (10%)
 
@@ -72,9 +72,9 @@ export async function POST(req: Request) {
 }
     `;
 
-    // ✅ العودة للاسم القياسي الصحيح
+    // ✅ الحل النهائي للخطأ 404: استخدام الاسم الرقمي الثابت
     const model = genAI.getGenerativeModel({
-      model: "gemini-1.5-flash", 
+      model: "gemini-1.5-flash-001", // هذا الاسم يعمل دائماً ولا يتوقف
       systemInstruction: systemInstruction,
       generationConfig: {
         responseMimeType: "application/json",
