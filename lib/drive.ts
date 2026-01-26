@@ -15,55 +15,47 @@ export async function getDriveFiles(folderUrl: string) {
   );
 
   const drive = google.drive({ version: 'v3', auth });
-  
-  // 1. جلب قائمة المجلدات الفرعية بسرعة كبيرة
-  const subFoldersResponse = await drive.files.list({
-    q: `'${folderId}' in parents and mimeType = 'application/vnd.google-apps.folder' and trashed = false`,
-    fields: 'files(id, name)',
-    pageSize: 10
-  });
 
-  const subFolders = subFoldersResponse.data.files || [];
-  let filesToDownload: any[] = [];
+  // تنفيذ البحث في المجلد الرئيسي والمجلدات الفرعية بالتوازي لربح الوقت
+  const [rootFilesRes, subFoldersRes] = await Promise.all([
+    drive.files.list({
+      q: `'${folderId}' in parents and trashed = false and (mimeType = 'application/pdf' or mimeType contains 'image/')`,
+      fields: 'files(id, name, mimeType)',
+      pageSize: 2
+    }),
+    drive.files.list({
+      q: `'${folderId}' in parents and mimeType = 'application/vnd.google-apps.folder' and trashed = false`,
+      fields: 'files(id, name)',
+      pageSize: 2 // نكتفي بفحص أول مجلدين فرعيين فقط
+    })
+  ]);
 
-  if (subFolders.length > 0) {
-    // 2. البحث في المجلدات الفرعية بالتوازي (Parallel Search)
-    const folderPromises = subFolders.slice(0, 4).map(folder => 
+  let candidates = [...(rootFilesRes.data.files || [])];
+
+  // إذا لم نجد ملفات كافية في الرئيسي، نبحث في أول مجلدين فرعيين بالتوازي
+  if (candidates.length < 2 && subFoldersRes.data.files?.length) {
+    const subFilesPromises = subFoldersRes.data.files.map(folder =>
       drive.files.list({
-        q: `'${folder.id}' in parents and trashed = false`,
+        q: `'${folder.id}' in parents and trashed = false and (mimeType = 'application/pdf' or mimeType contains 'image/')`,
         fields: 'files(id, name, mimeType)',
         pageSize: 1
       })
     );
-    
-    const results = await Promise.all(folderPromises);
-    results.forEach(res => {
-      if (res.data.files && res.data.files[0]) {
-        const f = res.data.files[0];
-        if (SUPPORTED_MIME_TYPES.includes(f.mimeType!)) filesToDownload.push(f);
-      }
+    const subResults = await Promise.all(subFilesPromises);
+    subResults.forEach(res => {
+      if (res.data.files?.[0]) candidates.push(res.data.files[0]);
     });
   }
 
-  // إذا لم نجد شيئاً في المجلدات الفرعية، نبحث في الرئيسي
-  if (filesToDownload.length === 0) {
-    const rootRes = await drive.files.list({
-      q: `'${folderId}' in parents and trashed = false`,
-      fields: 'files(id, name, mimeType)',
-      pageSize: 3
-    });
-    filesToDownload = (rootRes.data.files || []).filter(f => SUPPORTED_MIME_TYPES.includes(f.mimeType!));
-  }
+  // نأخذ أول ملفين فقط ونحملهما بالتوازي
+  const finalSelection = candidates.slice(0, 2);
+  if (finalSelection.length === 0) return [];
 
-  if (filesToDownload.length === 0) return [];
-
-  // 3. تحميل محتوى الملفات بالتوازي (أهم خطوة للسرعة)
-  // نكتفي بـ 2-3 ملفات فقط لضمان عدم تجاوز الوقت
-  const downloadPromises = filesToDownload.slice(0, 3).map(async (file) => {
+  const downloadPromises = finalSelection.map(async (file) => {
     try {
       const res = await drive.files.get(
         { fileId: file.id!, alt: 'media' },
-        { responseType: 'arraybuffer' }
+        { responseType: 'arraybuffer', timeout: 4000 } // مهلة تحميل 4 ثوان للملف الواحد
       );
       return {
         id: file.id,
@@ -71,13 +63,10 @@ export async function getDriveFiles(folderUrl: string) {
         mimeType: file.mimeType,
         buffer: new Uint8Array(res.data as ArrayBuffer),
       };
-    } catch (e) {
-      return null;
-    }
+    } catch (e) { return null; }
   });
 
-  const finalFiles = await Promise.all(downloadPromises);
-  return finalFiles.filter(f => f !== null);
+  return (await Promise.all(downloadPromises)).filter(f => f !== null);
 }
 
 function extractFolderId(url: string): string | null {
