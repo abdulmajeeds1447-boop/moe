@@ -1,37 +1,33 @@
 
-export const analyzeTeacherReport = async (driveLink: string, onRetry?: (attempt: number) => void) => {
-  const maxRetries = 2;
-  let delay = 2000;
+export const analyzeTeacherReport = async (driveLink: string) => {
+  try {
+    const response = await fetch('/api/analyze', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ link: driveLink }),
+    });
 
-  for (let i = 0; i < maxRetries; i++) {
-    try {
-      const response = await fetch('/api/analyze', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ link: driveLink }),
-      });
+    const result = await response.json();
 
-      const result = await response.json();
-
-      if (response.ok) {
-        if (result.suggested_scores) {
-          const fixedScores: Record<number, number> = {};
-          for (let j = 1; j <= 11; j++) {
-            const rawValue = result.suggested_scores[j.toString()] || result.suggested_scores[j];
-            fixedScores[j] = Number(rawValue !== undefined ? rawValue : 0);
-          }
-          result.suggested_scores = fixedScores;
-        }
-        return result;
+    if (!response.ok) {
+      if (response.status === 429) {
+        throw new Error('عذراً، تم الوصول للحد الأقصى لطلبات التحليل المجانية المتاحة حالياً. يرجى الانتظار دقيقة واحدة ثم المحاولة مرة أخرى.');
       }
-
-      // إظهار الخطأ التفصيلي إذا جاء من السيرفر
-      throw new Error(result.details || result.error || 'فشل الاتصال بنظام التدقيق');
-
-    } catch (error: any) {
-      if (i === maxRetries - 1) throw error;
-      if (onRetry) onRetry(i + 1);
-      await new Promise(resolve => setTimeout(resolve, delay));
+      const errorMessage = result.details ? `${result.error}: ${result.details}` : (result.error || 'فشل التحليل');
+      throw new Error(errorMessage);
     }
+    
+    if (result.suggested_scores) {
+      const fixedScores: Record<number, number> = {};
+      for (let i = 1; i <= 11; i++) {
+        fixedScores[i] = Number(result.suggested_scores[i.toString()] || result.suggested_scores[i] || 0);
+      }
+      result.suggested_scores = fixedScores;
+    }
+    
+    return result;
+  } catch (error: any) {
+    console.error("AI Analysis Client Error:", error);
+    throw error;
   }
 };

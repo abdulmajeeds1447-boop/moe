@@ -1,90 +1,84 @@
 
 import { NextResponse } from 'next/server';
 import { getDriveFiles } from '../../../lib/drive';
-import { parseFileContent } from '../../../lib/parser';
 import { GoogleGenAI, Type } from "@google/genai";
-
-// رفع مدة التنفيذ للمساعدة في معالجة الملفات الكبيرة
-export const maxDuration = 60;
 
 export async function POST(req: Request) {
   try {
     const { link } = await req.json();
 
-    // 1. التحقق من مفتاح الـ API
     if (!process.env.API_KEY) {
-      return NextResponse.json({ error: 'خطأ التقني: مفتاح Gemini API غير مضاف في إعدادات السيرفر.' }, { status: 500 });
+      return NextResponse.json({ error: 'مفتاح Gemini API غير معرف.' }, { status: 500 });
     }
 
-    // 2. محاولة الوصول لملفات الدرايف
+    if (!link) {
+      return NextResponse.json({ error: 'رابط المجلد مطلوب.' }, { status: 400 });
+    }
+
     let driveFiles;
     try {
       driveFiles = await getDriveFiles(link);
-    } catch (driveErr: any) {
-      return NextResponse.json({ 
-        error: 'فشل الوصول للمجلد', 
-        details: 'تأكد أن المجلد مشترك (أي شخص لديه الرابط يمكنه العرض) وأن بيانات الوصول للسيرفر صحيحة.' 
-      }, { status: 403 });
+    } catch (driveError: any) {
+      return NextResponse.json({ error: 'خطأ في الوصول للمجلد', details: driveError.message }, { status: 403 });
     }
 
     if (!driveFiles || driveFiles.length === 0) {
-      return NextResponse.json({ error: 'المجلد فارغ تماماً أو لا يحتوي على ملفات مدعومة (PDF/صور).' }, { status: 404 });
+      return NextResponse.json({ error: 'المجلد فارغ من الشواهد المدعومة (PDF/صور).' }, { status: 404 });
     }
 
-    // 3. معالجة المحتوى لتحويله لبيانات يفهمها الذكاء الاصطناعي
+    // نأخذ أول 10 شواهد لضمان جودة التحليل وعدم تجاوز حدود الذاكرة
     const promptParts: any[] = [];
-    const limitedFiles = driveFiles.slice(0, 8); // فحص أول 8 ملفات لضمان السرعة
+    const limitedFiles = driveFiles.slice(0, 10);
     
     for (const file of limitedFiles) {
-      const processed = await parseFileContent(file);
-      if (processed) {
-        if (processed.type === 'text') {
-          promptParts.push({ text: `[اسم الملف: ${processed.name}]\nالمحتوى النصي:\n${processed.content}\n---` });
-        } else if (processed.type === 'image') {
-          promptParts.push({
-            inlineData: { data: processed.content, mimeType: processed.mimeType }
-          });
-          promptParts.push({ text: `صورة شاهد تطبيقية: ${processed.name}` });
-        }
-      }
+      const base64Data = Buffer.from(file.buffer).toString('base64');
+      promptParts.push({
+        inlineData: { data: base64Data, mimeType: file.mimeType }
+      });
+      promptParts.push({ text: `وثيقة شاهد: ${file.name}\n` });
     }
 
-    if (promptParts.length === 0) {
-      return NextResponse.json({ error: 'لم ينجح النظام في قراءة محتوى الملفات. تأكد من جودة ملفات الـ PDF.' }, { status: 422 });
-    }
+    promptParts.push({ 
+      text: "بناءً على الشواهد المرفوعة، قم بإجراء تقييم تربوي صارم ( للمعلم صاحب الملف) وفق المعايير الـ 11 المحددة." 
+    });
 
     const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
     
-    // استخدام الموديل السريع والذكي في نفس الوقت
-    const modelName = 'gemini-3-flash-preview';
-    
+    // التعليمات التربوية الصارمة بناءً على طلب المدير نايف الشهري
     const systemInstruction = `
-أنت الآن "خبير تدقيق جودة تعليمي" صارم جداً. مهمتك هي الحكم على أداء المعلم من خلال الأدلة.
+أنت مساعد تقني وخبير تربوي تعمل مع مدير المدرسة "نايف أحمد الشهري". مهمتك هي تحليل الأدلة والملفات المقدمة من المعلمين لتقييم أدائهم الوظيفي بناءً على معايير وزارة التعليم السعودية بدقة وموضوعية.
 
-التعليمات المهنية الصارمة:
-1. "جدول توزيع الدرجات" أو "أوزان المعايير" أو "توصيف الأداء" (مثل الملف المرفق في الشات) هي وثائق مرجعية وليست شواهد. 
-2. إذا وجدت ملفاً يشرح "كيف نقيم المعلم"، لا تعطه أي درجة. ابحث عن (فعل المعلم) مثل: صور حصة، كشف درجات، خطة درس موقعة، رسائل واتساب مع أولياء الأمور.
-3. كن مهنياً وقاسياً في الحق: إذا كان المجلد يحتوي فقط على أوراق رسمية عامة، امنح المعلم درجة 0 واذكر في التبرير: "لم يتم العثور على أي شاهد تطبيقي يثبت الأداء الفعلي، الملفات المرفقة هي وثائق إرشادية فقط".
-4. الدرجات من (0 إلى 5) لكل معيار.
+المعايير الـ 11 المطلوب تقييمها:
+1. أداء الواجبات الوظيفية: التقيد بالدوام، تأدية الحصص، الإشراف، المناوبة، وحصص الانتظار.
+2. التفاعل مع المجتمع: مجتمعات التعلم المهنية، تبادل الزيارات، الدروس التطبيقية، بحث الدرس.
+3. التفاعل مع أولياء الأمور: التواصل الفعال (الموجه الطلابي)، تزويدهم بالمستويات، الخطة الأسبوعية.
+4. التنويع في استراتيجيات التدريس: استراتيجيات متنوعة تناسب المستويات، ومراعاة الفروق الفردية.
+5. تحسين نتائج المتعلمين: معالجة الفاقد التعليمي، خطط علاجية، خطط إثرائية.
+6. إعداد وتنفيذ خطة التعلم: توثيق توزيع المنهج وإعداد الدروس والواجبات.
+7. توظيف تقنيات ووسائل التعلم: دمج التقنية والتنويع في الوسائل التعليمية.
+8. تهيئة البيئة التعليمية: مراعاة حاجات الطلاب، التهيئة النفسية، التحفيز.
+9. الإدارة الصفية: ضبط سلوك الطلاب، شد الانتباه، ومتابعة الحضور والغياب.
+10. تحليل نتائج المتعلمين: تحليل نتائج الاختبارات، وتصنيف الطلاب.
+11. تنوع أساليب التقويم: اختبارات ورقية وإلكترونية، مشاريع، مهام أدائية، ملفات إنجاز.
 
-المعايير الـ 11:
-(1:الواجبات، 2:المجتمع المهني، 3:أولياء الأمور، 4:الاستراتيجيات، 5:النتائج، 6:الخطة، 7:التقنية، 8:البيئة، 9:الإدارة، 10:التحليل، 11:التقويم).
+القواعد الصارمة:
+- الدرجة من 0 إلى 5 لكل معيار.
+- خفض الدرجة لـ (0 أو 1) إذا لم تجد شاهداً صريحاً للمعيار.
+- كن دقيقاً جداً ولا تمنح درجة 5 إلا بوجود أدلة كافية وشاملة.
 
-الرد JSON حصراً:
+الرد يجب أن يكون JSON فقط:
 {
-  "suggested_scores": {"1": 0, "2": 0, ... "11": 0},
-  "justification": "تقرير التدقيق المهني: \n- تحليل الملفات: [اذكر ماذا وجدت بالتحديد]\n- النقد: [لماذا استبعدت بعض الملفات]\n- التوصية: [ما الذي يجب على المعلم فعله]"
+  "suggested_scores": { "1": 5, "2": 3, ... "11": 4 },
+  "justification": "تحليل مفصل بناءً على ما وجد في الشواهد"
 }
     `;
 
-    const result = await ai.models.generateContent({
-      model: modelName,
-      contents: [{ parts: promptParts }],
+    const response = await ai.models.generateContent({
+      model: 'gemini-3-flash-preview', // تغيير الموديل للاسم الصحيح والمستقر
+      contents: { parts: promptParts },
       config: {
         systemInstruction: systemInstruction,
         responseMimeType: 'application/json',
-        temperature: 0.1, // لضمان دقة النتائج وعدم الهلوسة
-        thinkingConfig: { thinkingBudget: 2000 }, // تفكير مركز وسريع
         responseSchema: {
           type: Type.OBJECT,
           properties: {
@@ -98,17 +92,27 @@ export async function POST(req: Request) {
               }
             },
             justification: { type: Type.STRING }
-          }
+          },
+          required: ['suggested_scores', 'justification']
         }
       }
     });
 
-    return NextResponse.json(JSON.parse(result.text || '{}'));
+    return NextResponse.json(JSON.parse(response.text || '{}'));
 
   } catch (error: any) {
-    console.error("Analysis Error:", error);
+    console.error("Critical AI Error:", error);
+    
+    // التعامل مع خطأ الكوتا (Quota)
+    if (error.status === 429) {
+      return NextResponse.json({ 
+        error: 'تم تجاوز الحد المسموح للطلبات المجانية', 
+        details: 'يرجى المحاولة بعد دقيقة واحدة.' 
+      }, { status: 429 });
+    }
+
     return NextResponse.json({ 
-      error: 'حدث خطأ غير متوقع أثناء التدقيق', 
+      error: 'فشل التحليل الذكي', 
       details: error.message 
     }, { status: 500 });
   }
