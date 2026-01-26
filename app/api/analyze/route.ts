@@ -2,6 +2,9 @@
 import { NextResponse } from 'next/server';
 import { getDriveFiles } from '../../../lib/drive';
 import { GoogleGenAI, Type } from "@google/genai";
+import { Buffer } from 'buffer';
+
+export const maxDuration = 60;
 
 export async function POST(req: Request) {
   try {
@@ -68,14 +71,14 @@ export async function POST(req: Request) {
 
 الرد يجب أن يكون JSON فقط:
 {
-  "suggested_scores": { "1": 5, "2": 3, ... "11": 4 },
+  "suggested_scores": { "1": 5, "2": 3, "11": 4 },
   "justification": "تحليل مفصل بناءً على ما وجد في الشواهد"
 }
     `;
 
     const response = await ai.models.generateContent({
-      model: 'gemini-3-flash-preview', // تغيير الموديل للاسم الصحيح والمستقر
-      contents: { parts: promptParts },
+      model: 'gemini-3-flash-preview', 
+      contents: [{ parts: promptParts }],
       config: {
         systemInstruction: systemInstruction,
         responseMimeType: 'application/json',
@@ -103,7 +106,6 @@ export async function POST(req: Request) {
   } catch (error: any) {
     console.error("Critical AI Error:", error);
     
-    // التعامل مع خطأ الكوتا (Quota)
     if (error.status === 429) {
       return NextResponse.json({ 
         error: 'تم تجاوز الحد المسموح للطلبات المجانية', 
