@@ -1,8 +1,8 @@
 
 import { NextResponse } from 'next/server';
 import { getDriveFiles } from '../../../lib/drive';
+import { parseFileContent } from '../../../lib/parser';
 import { GoogleGenAI, Type } from "@google/genai";
-import { Buffer } from 'buffer';
 
 export const maxDuration = 60;
 
@@ -11,66 +11,72 @@ export async function POST(req: Request) {
     const { link } = await req.json();
 
     if (!process.env.API_KEY) {
-      return NextResponse.json({ error: 'مفتاح Gemini API غير معرف.' }, { status: 500 });
+      return NextResponse.json({ error: 'مفتاح API غير متوفر' }, { status: 500 });
     }
 
-    if (!link) {
-      return NextResponse.json({ error: 'رابط المجلد مطلوب.' }, { status: 400 });
-    }
-
-    let driveFiles;
-    try {
-      driveFiles = await getDriveFiles(link);
-    } catch (driveError: any) {
-      return NextResponse.json({ error: 'خطأ في الوصول للمجلد', details: driveError.message }, { status: 403 });
-    }
-
+    // 1. جلب الملفات من درايف
+    const driveFiles = await getDriveFiles(link);
     if (!driveFiles || driveFiles.length === 0) {
-      return NextResponse.json({ error: 'المجلد فارغ تماماً من الشواهد المدعومة.' }, { status: 404 });
+      return NextResponse.json({ error: 'المجلد فارغ أو لا يمكن الوصول إليه' }, { status: 404 });
     }
 
-    // تقليل عدد الملفات لـ 6 لضمان استقرار الحصة المجانية وسرعة الرد
-    const limitedFiles = driveFiles.slice(0, 6);
+    // 2. معالجة واستخراج النصوص (تقليل الحجم بشكل ضخم)
+    // نكتفي بـ 5 ملفات لضمان عدم تجاوز حدود الحصة المجانية
+    const limitedFiles = driveFiles.slice(0, 5);
     const promptParts: any[] = [];
     
     for (const file of limitedFiles) {
-      const base64Data = Buffer.from(file.buffer).toString('base64');
-      promptParts.push({
-        inlineData: { data: base64Data, mimeType: file.mimeType }
-      });
-      promptParts.push({ text: `[محتوى ملف: ${file.name}]\n` });
+      const processed = await parseFileContent(file);
+      if (processed) {
+        if (processed.type === 'text') {
+          // إرسال النص فقط يوفر 90% من الحصة
+          promptParts.push({ text: `--- محتوى ملف (${processed.name}) ---\n${processed.content}\n` });
+        } else if (processed.type === 'image') {
+          promptParts.push({
+            inlineData: { data: processed.content, mimeType: processed.mimeType }
+          });
+          promptParts.push({ text: `[صورة شاهد: ${processed.name}]\n` });
+        }
+      }
     }
 
     const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
     
+    // استخدام gemini-flash-lite-latest لأنه يوفر أعلى معدل طلبات في الدقيقة (RPM) مجاناً
+    const modelName = 'gemini-flash-lite-latest';
+    
     const systemInstruction = `
-أنت مدقق تربوي صارم لصالح مدير المدرسة "نايف أحمد الشهري".
-مهمتك: فحص الملفات المرفقة وتحديد الدرجة (من 0 إلى 5) لـ 11 معياراً.
+أنت مدقق جودة تعليمي صارم.
+حلل الشواهد المرفقة (نصوص أو صور) وقارنها بالمعايير الـ 11 للأداء الوظيفي.
+القاعدة الصارمة: المعيار الذي لا تظهر له بينة واضحة في الملفات درجته 0.
 
-القاعدة الذهبية:
-- إذا لم تجد شاهداً نصياً أو صورياً صريحاً للمعيار داخل الملفات، فالدرجة هي 0.
-- لا تمنح درجات بناءً على التخمين.
-- الدرجة 5 تعني وجود شاهد قوي ومكتمل.
+المعايير:
+1. الواجبات الوظيفية (10%)
+2. التفاعل مع المجتمع (10%)
+3. التفاعل مع أولياء الأمور (10%)
+4. استراتيجيات التدريس (10%)
+5. نتائج المتعلمين (10%)
+6. خطة التعلم (10%)
+7. تقنيات التعلم (10%)
+8. البيئة التعليمية (5%)
+9. الإدارة الصفية (5%)
+10. تحليل النتائج (10%)
+11. أساليب التقويم (10%)
 
-المعايير (الأوزان):
-- (1-7 و 10-11): وزن 10% لكل منها.
-- (8-9): وزن 5% لكل منها.
-
-يجب أن يكون الرد JSON فقط:
+الرد يجب أن يكون بصيغة JSON حصراً:
 {
-  "suggested_scores": { "1": 0, "2": 0, ..., "11": 0 },
-  "justification": "اذكر هنا أسماء الملفات التي استندت إليها والدرجات الممنوحة بصدق."
+  "suggested_scores": {"1": 0, "2": 0, "3": 0, "4": 0, "5": 0, "6": 0, "7": 0, "8": 0, "9": 0, "10": 0, "11": 0},
+  "justification": "تقرير مفصل يوضح الشواهد التي تم العثور عليها وتلك المفقودة."
 }
     `;
 
-    // التحويل لموديل Flash المتاح والمستقر
     const response = await ai.models.generateContent({
-      model: 'gemini-3-flash-preview',
+      model: modelName,
       contents: [{ parts: promptParts }],
       config: {
         systemInstruction: systemInstruction,
         responseMimeType: 'application/json',
-        temperature: 0, // منع العشوائية تماماً
+        temperature: 0.1,
         responseSchema: {
           type: Type.OBJECT,
           properties: {
@@ -84,23 +90,23 @@ export async function POST(req: Request) {
               }
             },
             justification: { type: Type.STRING }
-          },
-          required: ['suggested_scores', 'justification']
+          }
         }
       }
     });
 
-    const text = response.text;
-    if (!text) throw new Error('Empty response from AI');
-    
-    return NextResponse.json(JSON.parse(text));
+    return NextResponse.json(JSON.parse(response.text || '{}'));
 
   } catch (error: any) {
-    console.error("Analysis Error:", error);
-    // معالجة خطأ الحصة لإظهاره بشكل مفهوم للمستخدم
+    console.error("Critical Analysis Error:", error);
+    let errorMessage = 'حدث خطأ غير متوقع في التدقيق الذكي';
+    
     if (error.message?.includes('429')) {
-      return NextResponse.json({ error: 'نفدت حصة الاستخدام المجانية مؤقتاً. يرجى الانتظار دقيقة ثم المحاولة.' }, { status: 429 });
+      errorMessage = 'تم الوصول للحد الأقصى للطلبات المجانية. يرجى الانتظار دقيقة واحدة والمحاولة مجدداً.';
+    } else if (error.message?.includes('503')) {
+      errorMessage = 'خادم الذكاء الاصطناعي مشغول حالياً. جرب بعد لحظات.';
     }
-    return NextResponse.json({ error: 'فشل التدقيق', details: error.message }, { status: 500 });
+
+    return NextResponse.json({ error: errorMessage, details: error.message }, { status: error.status || 500 });
   }
 }
