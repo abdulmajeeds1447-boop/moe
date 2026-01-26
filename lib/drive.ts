@@ -80,8 +80,8 @@ export async function getDriveFiles(folderUrl: string) {
 
     // اختيار ملفين من كل مجلد لضمان تغطية المعايير الـ 11
     let selectedFiles: any[] = [];
-    const FILES_PER_FOLDER = 2; // نأخذ ملفين من كل معيار
-    const MAX_TOTAL_FILES = 25; // الحد الأقصى الكلي لضمان سرعة التحليل
+    const FILES_PER_FOLDER = 3; // نأخذ ملفين من كل معيار
+    const MAX_TOTAL_FILES = 40; // الحد الأقصى الكلي لضمان سرعة التحليل
 
     // نمر على المجلدات ونأخذ منها بالتساوي
     Object.keys(filesByFolder).forEach(folderName => {
