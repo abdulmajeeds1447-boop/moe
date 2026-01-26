@@ -12,6 +12,7 @@ interface EvaluationModalProps {
 
 const EvaluationModal: React.FC<EvaluationModalProps> = ({ submission, onClose, isViewOnly = false }) => {
   const [justification, setJustification] = useState('');
+  const [justificationsList, setJustificationsList] = useState<string[]>([]);
   const [strengths, setStrengths] = useState<string[]>([]);
   const [weaknesses, setWeaknesses] = useState<string[]>([]);
   const [recommendation, setRecommendation] = useState('');
@@ -35,8 +36,6 @@ const EvaluationModal: React.FC<EvaluationModalProps> = ({ submission, onClose, 
           Object.entries(data.scores).forEach(([k, v]) => normalized[Number(k)] = Number(v));
           setScores(normalized);
         }
-        // استعادة البيانات الإضافية إذا كانت مخزنة في JSON (يمكن توسيع الجدول لاحقاً)
-        // حالياً سنعرضها من نص التحليل إذا كانت مدمجة
       }
     } catch (e) { console.error("Load error:", e); }
   };
@@ -54,25 +53,33 @@ const EvaluationModal: React.FC<EvaluationModalProps> = ({ submission, onClose, 
       });
       const { files, error: scanError } = await scanRes.json();
       if (scanError) throw new Error(scanError);
-      if (!files || files.length === 0) throw new Error('لم يتم العثور على ملفات (PDF/صور) صالحة للتحليل');
-
-      setProgress({ current: 0, total: files.length, status: `تم العثور على ${files.length} ملفات. يبدأ التدقيق الآن...` });
+      if (!files || files.length === 0) throw new Error('لا توجد ملفات صالحة للتحليل');
 
       let allFindings = "";
+      setProgress({ current: 0, total: files.length, status: `تم اكتشاف ${files.length} ملفات. جاري استخراج الشواهد...` });
+
+      // تحليل كل ملف على حدة (تجنباً للـ Timeout)
       for (let i = 0; i < files.length; i++) {
         const file = files[i];
-        setProgress(p => ({ ...p, current: i + 1, status: `تدقيق الشواهد في: ${file.name}...` }));
+        setProgress(p => ({ ...p, current: i + 1, status: `جاري قراءة وتحليل: ${file.name}...` }));
 
-        const fileRes = await fetch('/api/analyze', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ mode: 'partial', fileId: file.id, mimeType: file.mimeType, fileName: file.name })
-        });
-        const data = await fileRes.json();
-        allFindings += `[مصدر: ${file.name}]\n${data.findings}\n\n`;
+        try {
+          const fileRes = await fetch('/api/analyze', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ mode: 'partial', fileId: file.id, mimeType: file.mimeType, fileName: file.name })
+          });
+          const data = await fileRes.json();
+          if (data.findings) {
+            allFindings += `--- مستند: ${file.name} ---\n${data.findings}\n\n`;
+          }
+        } catch (err) {
+          console.error(`Error analyzing ${file.name}`, err);
+        }
       }
 
-      setProgress(p => ({ ...p, status: 'جاري معالجة كافة الشواهد وإصدار القرار والدرجات المستحقة...' }));
+      // طلب التقييم النهائي بناءً على كل ما تم تجميعه
+      setProgress(p => ({ ...p, status: 'جاري إصدار الحكم النهائي والدرجات المستحقة...' }));
       const finalRes = await fetch('/api/analyze', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -81,20 +88,15 @@ const EvaluationModal: React.FC<EvaluationModalProps> = ({ submission, onClose, 
       const result = await finalRes.json();
 
       if (result.suggested_scores) {
-        // تحديث المبررات والدرجات
-        setJustification(result.justification || '');
+        setScores(result.suggested_scores);
+        setJustificationsList(result.justifications || []);
         setStrengths(result.strengths || []);
         setWeaknesses(result.weaknesses || []);
         setRecommendation(result.recommendation || '');
-        
-        const newScores = { ...scores };
-        Object.entries(result.suggested_scores).forEach(([k, v]) => {
-          newScores[Number(k)] = Number(v);
-        });
-        setScores(newScores);
+        setJustification("تم التحليل بنجاح بناءً على كافة الشواهد المرفقة.");
       }
     } catch (err: any) {
-      alert(`عذراً، حدث خطأ أثناء التحليل: ${err.message}`);
+      alert(`حدث خطأ: ${err.message}`);
     } finally {
       setIsAnalyzing(false);
     }
@@ -102,14 +104,13 @@ const EvaluationModal: React.FC<EvaluationModalProps> = ({ submission, onClose, 
 
   const calculateWeighted = (id: number) => {
     const criterion = EVALUATION_CRITERIA.find(c => c.id === id);
-    if (!criterion) return 0;
-    return ((scores[id] || 0) / 5) * criterion.weight;
+    return criterion ? ((scores[id] || 0) / 5) * criterion.weight : 0;
   };
 
   const calculateTotal = () => {
     let total = 0;
     EVALUATION_CRITERIA.forEach(c => { total += calculateWeighted(c.id); });
-    return Math.min(100, Math.round(total * 10) / 10); 
+    return Math.min(100, Math.round(total * 10) / 10);
   };
 
   const totalScore = calculateTotal();
@@ -125,180 +126,153 @@ const EvaluationModal: React.FC<EvaluationModalProps> = ({ submission, onClose, 
   const saveEvaluation = async () => {
     setIsSaving(true);
     try {
-      // دمج المبررات مع نقاط القوة والتوصيات للحفظ
-      const fullAnalysisText = `
-المبررات العامة: ${justification}
+      const fullAnalysis = `
+المبررات التفصيلية:
+${justificationsList.map((j, i) => `${i+1}. ${j}`).join('\n')}
+
 نقاط القوة: ${strengths.join(' - ')}
 نقاط التطوير: ${weaknesses.join(' - ')}
-التوصية الختامية: ${recommendation}
+التوصية النهائية: ${recommendation}
       `.trim();
 
       await supabase.from('evaluations').upsert({
         submission_id: submission.id,
         teacher_id: submission.teacher_id,
-        ai_analysis: fullAnalysisText,
+        ai_analysis: fullAnalysis,
         scores: scores,
         total_score: totalScore,
         overall_grade: gradeInfo.label,
       }, { onConflict: 'submission_id' });
       
       await supabase.from('submissions').update({ status: 'evaluated' }).eq('id', submission.id);
-      alert('✅ تم اعتماد التقييم وإصدار التقرير النهائي بنجاح');
+      alert('✅ تم اعتماد التقييم وإصدار التقرير النهائي');
       onClose();
-    } catch (e) { alert('خطأ في عملية الحفظ'); } finally { setIsSaving(false); }
+    } catch (e) { alert('خطأ في الحفظ'); } finally { setIsSaving(false); }
   };
 
   return (
-    <div className="fixed inset-0 z-[200] flex items-center justify-center p-4 bg-slate-900/95 backdrop-blur-xl overflow-y-auto font-['Tajawal']">
-      <div className="bg-white w-full max-w-7xl rounded-[3.5rem] shadow-2xl flex flex-col max-h-[96vh] overflow-hidden border border-white/20">
+    <div className="fixed inset-0 z-[200] flex items-center justify-center p-4 bg-slate-900/95 backdrop-blur-xl overflow-y-auto">
+      <div className="bg-white w-full max-w-7xl rounded-[3.5rem] shadow-2xl flex flex-col max-h-[96vh] overflow-hidden">
         
         {/* Header */}
-        <div className="p-8 bg-[#0d333f] text-white flex justify-between items-center relative overflow-hidden">
-          <div className="absolute top-0 right-0 w-64 h-64 bg-[#009688]/10 rounded-full -translate-y-1/2 translate-x-1/2 blur-3xl"></div>
-          <div className="flex items-center gap-6 relative z-10">
+        <div className="p-8 bg-[#0d333f] text-white flex justify-between items-center no-print">
+          <div className="flex items-center gap-6">
             <div className="w-16 h-16 bg-[#009688] rounded-3xl flex items-center justify-center text-3xl shadow-lg border border-white/10">🛡️</div>
             <div>
-              <h2 className="text-2xl font-black">مركز التدقيق الفني (Auditor Pro)</h2>
-              <p className="text-[11px] text-[#009688] font-black uppercase tracking-[0.2em]">نظام التدقيق الصارم مفعل</p>
+              <h2 className="text-2xl font-black">مركز التدقيق والقرار الرقمي</h2>
+              <p className="text-[11px] text-[#009688] font-black uppercase tracking-widest">تحليل شامل لكافة مجلدات الشواهد</p>
             </div>
           </div>
-          <button onClick={onClose} className="w-12 h-12 rounded-2xl bg-white/5 hover:bg-white/10 flex items-center justify-center text-xl transition-all relative z-10">✕</button>
+          <button onClick={onClose} className="w-12 h-12 rounded-2xl bg-white/5 hover:bg-white/10 flex items-center justify-center text-xl transition-all">✕</button>
         </div>
 
         <div className="flex-1 overflow-y-auto p-12 bg-[#f8fafc]">
           <div className="grid lg:grid-cols-2 gap-16">
             
-            {/* Left: Criteria & Grading */}
+            {/* Left Column: Metrics */}
             <div className="space-y-6">
-              <div className="flex items-center justify-between mb-4">
-                <h3 className="text-xs font-black text-slate-400 uppercase tracking-widest">مصفوفة المعايير والأوزان النسبية</h3>
-                <div className="px-3 py-1 bg-slate-100 rounded-lg text-[10px] font-bold text-slate-500">مقياس 0 - 5</div>
+              <div className="flex justify-between items-center mb-4">
+                <h3 className="text-xs font-black text-slate-400 uppercase tracking-widest">مصفوفة الدرجات المكتسبة</h3>
+                <div className="px-4 py-1 bg-slate-100 rounded-lg text-[10px] font-bold text-slate-500">مقياس 0-5</div>
               </div>
-              <div className="grid gap-3">
-                {EVALUATION_CRITERIA.map(c => (
-                  <div key={c.id} className="p-5 bg-white rounded-[2rem] border border-slate-100 flex justify-between items-center group hover:border-moe-teal transition-all shadow-sm">
-                    <div className="flex-1">
-                      <span className="text-sm font-black text-slate-800 block mb-1">{c.label}</span>
-                      <div className="flex items-center gap-3">
-                         <span className="text-[10px] text-slate-400 font-bold">الوزن: {c.weight}%</span>
-                         <span className="w-1 h-1 bg-slate-200 rounded-full"></span>
-                         <span className="text-[10px] text-moe-teal font-black">المكتسب: {calculateWeighted(c.id).toFixed(1)}%</span>
+              <div className="grid gap-4">
+                {EVALUATION_CRITERIA.map((c, idx) => (
+                  <div key={c.id} className="p-5 bg-white rounded-3xl border border-slate-100 shadow-sm hover:border-moe-teal transition-all group">
+                    <div className="flex justify-between items-start mb-3">
+                      <div className="flex-1">
+                        <span className="text-sm font-black text-slate-800 block mb-1">{c.label}</span>
+                        <p className="text-[10px] text-slate-400 font-medium leading-relaxed">{justificationsList[idx] || 'بانتظار التحليل...'}</p>
                       </div>
-                    </div>
-                    <div className="flex items-center gap-2">
-                       {scores[c.id] === 0 && <span className="text-red-400 text-xs font-bold px-2">❌ 0</span>}
-                       <select 
+                      <select 
                         disabled={isViewOnly || isAnalyzing}
                         value={scores[c.id]} 
                         onChange={e => setScores(p => ({...p, [c.id]: parseInt(e.target.value)}))}
-                        className="bg-slate-50 px-4 py-2.5 rounded-2xl text-xs font-black outline-none border border-transparent focus:border-moe-teal focus:bg-white transition-all appearance-none text-center min-w-[70px]"
+                        className="bg-slate-50 px-4 py-2 rounded-xl text-xs font-black outline-none border border-slate-200 focus:border-moe-teal appearance-none text-center"
                       >
-                        {[5,4,3,2,1,0].map(v => <option key={v} value={v}>⭐ {v}</option>)}
+                        {[5,4,3,2,1,0].map(v => <option key={v} value={v}>{v}</option>)}
                       </select>
+                    </div>
+                    <div className="flex items-center gap-3 pt-3 border-t border-slate-50">
+                       <span className="text-[9px] font-black text-moe-teal uppercase">الوزن: {c.weight}%</span>
+                       <div className="flex-1 h-1 bg-slate-100 rounded-full overflow-hidden">
+                          <div className="bg-moe-teal h-full transition-all duration-700" style={{ width: `${(scores[c.id] / 5) * 100}%` }} />
+                       </div>
+                       <span className="text-[10px] font-black text-slate-800">{calculateWeighted(c.id).toFixed(1)}%</span>
                     </div>
                   </div>
                 ))}
               </div>
             </div>
 
-            {/* Right: AI Analysis & Final Decision */}
+            {/* Right Column: Decisions */}
             <div className="space-y-10">
-              {/* Score Card */}
-              <div className="bg-[#0d333f] p-12 rounded-[3.5rem] text-white text-center shadow-2xl relative overflow-hidden group">
-                <div className="absolute inset-0 bg-gradient-to-br from-[#009688]/20 to-transparent opacity-0 group-hover:opacity-100 transition-opacity duration-700"></div>
-                <p className="text-xs font-bold opacity-60 mb-4 tracking-widest">إجمالي درجة الأداء</p>
+              {/* Decision Box */}
+              <div className="bg-[#0d333f] p-12 rounded-[3.5rem] text-white text-center shadow-2xl relative overflow-hidden">
+                <div className="absolute top-0 right-0 w-40 h-40 bg-white/5 rounded-full -translate-y-1/2 translate-x-1/2 blur-2xl"></div>
+                <p className="text-xs font-bold opacity-60 mb-2 tracking-widest">نسبة الأداء العام</p>
                 <h4 className="text-9xl font-black mb-6 tracking-tighter">{totalScore}%</h4>
                 <div className={`px-10 py-3 rounded-full inline-block font-black text-sm ${gradeInfo.color} ${gradeInfo.bg} shadow-xl`}>
                   {gradeInfo.label}
                 </div>
               </div>
 
-              {/* Action Buttons & Progress */}
               {isAnalyzing ? (
-                <div className="bg-white p-12 rounded-[3rem] border-2 border-dashed border-moe-teal/30 text-center space-y-8 animate-in zoom-in-95 duration-500">
-                  <div className="relative w-24 h-24 mx-auto">
-                    <div className="absolute inset-0 border-4 border-slate-100 rounded-full"></div>
-                    <div className="absolute inset-0 border-4 border-moe-teal rounded-full border-t-transparent animate-spin"></div>
-                    <div className="absolute inset-0 flex items-center justify-center font-black text-moe-teal text-xs">AI</div>
-                  </div>
+                <div className="bg-white p-12 rounded-[3rem] border-2 border-dashed border-moe-teal/30 text-center space-y-8 animate-pulse">
+                  <div className="w-20 h-20 border-4 border-moe-teal border-t-transparent rounded-full animate-spin mx-auto shadow-lg shadow-moe-teal/20"></div>
                   <div className="space-y-3">
                     <p className="font-black text-xl text-[#0d333f]">{progress.status}</p>
-                    <div className="flex items-center justify-center gap-2 text-xs text-slate-400 font-bold">
-                       <span>جاري المعالجة</span>
-                       <span className="w-1.5 h-1.5 bg-moe-teal rounded-full animate-ping"></span>
+                    <div className="w-full bg-slate-100 h-2.5 rounded-full overflow-hidden">
+                      <div className="bg-moe-teal h-full transition-all duration-500" style={{ width: `${(progress.current / (progress.total || 1)) * 100}%` }} />
                     </div>
-                  </div>
-                  <div className="w-full bg-slate-50 h-2 rounded-full overflow-hidden">
-                    <div 
-                      className="bg-moe-teal h-full transition-all duration-700 ease-out" 
-                      style={{ width: `${(progress.current / (progress.total || 1)) * 100}%` }}
-                    />
                   </div>
                 </div>
               ) : (
-                <div className="space-y-4">
+                <div className="space-y-6">
                   {!isViewOnly && (
-                    <button 
-                      onClick={runAdvancedAnalysis} 
-                      className="w-full py-6 bg-moe-teal text-white rounded-[2rem] font-black shadow-xl shadow-moe-teal/20 hover:scale-[1.02] active:scale-[0.98] transition-all text-lg flex items-center justify-center gap-3"
-                    >
-                      🚀 تشغيل التدقيق الشامل واستخراج الدرجات
+                    <button onClick={runAdvancedAnalysis} className="w-full py-7 bg-moe-teal text-white rounded-[2rem] font-black shadow-2xl shadow-moe-teal/20 hover:scale-[1.02] active:scale-[0.98] transition-all text-xl">
+                      🚀 تحليل المجلد بالكامل وإصدار القرار
                     </button>
                   )}
-                  
+
+                  {/* Summary Card */}
+                  <div className="bg-white p-10 rounded-[3rem] border border-slate-100 shadow-sm space-y-8">
+                    {strengths.length > 0 && (
+                      <div className="grid grid-cols-2 gap-6">
+                        <div className="space-y-3">
+                           <h5 className="text-[10px] font-black text-emerald-600 uppercase tracking-widest">نقاط القوة المرصودة:</h5>
+                           <ul className="space-y-2">
+                             {strengths.map((s,i) => <li key={i} className="text-xs font-bold text-slate-700 flex items-start gap-2"><span className="text-emerald-500">✓</span> {s}</li>)}
+                           </ul>
+                        </div>
+                        <div className="space-y-3">
+                           <h5 className="text-[10px] font-black text-amber-600 uppercase tracking-widest">نقاط التطوير:</h5>
+                           <ul className="space-y-2">
+                             {weaknesses.map((w,i) => <li key={i} className="text-xs font-bold text-slate-700 flex items-start gap-2"><span className="text-amber-500">!</span> {w}</li>)}
+                           </ul>
+                        </div>
+                      </div>
+                    )}
+
+                    {recommendation && (
+                      <div className="p-6 bg-slate-50 rounded-2xl border border-slate-100 italic font-bold text-[#0d333f] text-sm leading-relaxed text-center">
+                        "{recommendation}"
+                      </div>
+                    )}
+                  </div>
+
                   <div className="grid grid-cols-2 gap-4 no-print">
                     {!isViewOnly && (
-                      <button onClick={saveEvaluation} disabled={isSaving} className="py-5 bg-[#0d333f] text-white rounded-[1.8rem] font-black shadow-lg hover:brightness-125 transition-all">
-                        {isSaving ? 'جاري الاعتماد...' : 'اعتماد التقرير نهائياً'}
+                      <button onClick={saveEvaluation} disabled={isSaving} className="py-6 bg-[#0d333f] text-white rounded-[1.8rem] font-black shadow-xl hover:brightness-125 transition-all">
+                        {isSaving ? 'جاري الحفظ...' : 'اعتماد التقييم نهائياً'}
                       </button>
                     )}
-                    <button onClick={() => window.print()} className="py-5 bg-white border-2 border-slate-100 text-[#0d333f] rounded-[1.8rem] font-black hover:bg-slate-50 transition-all">
+                    <button onClick={() => window.print()} className="py-6 bg-white border-2 border-slate-100 text-[#0d333f] rounded-[1.8rem] font-black hover:bg-slate-50 transition-all">
                       🖨️ طباعة محضر التقييم
                     </button>
                   </div>
                 </div>
               )}
-
-              {/* Insights Section */}
-              <div className="space-y-6">
-                {/* Justification */}
-                <div className="bg-white p-8 rounded-[2.5rem] border border-slate-100 shadow-sm space-y-4">
-                  <h4 className="text-[11px] font-black text-slate-400 uppercase tracking-widest flex items-center gap-2">
-                    <span className="w-1.5 h-1.5 bg-moe-teal rounded-full"></span> مبررات التقييم والقرار
-                  </h4>
-                  <div className="text-sm font-bold leading-relaxed text-slate-700 bg-slate-50 p-6 rounded-2xl min-h-[150px] whitespace-pre-wrap">
-                    {justification || 'انتظار بدء عملية التدقيق لتحليل الشواهد...'}
-                  </div>
-                </div>
-
-                {/* Recommendations & Feedback */}
-                {(recommendation || strengths.length > 0) && (
-                  <div className="bg-teal-50/50 p-8 rounded-[2.5rem] border border-teal-100 space-y-6 animate-in fade-in duration-700">
-                    {strengths.length > 0 && (
-                      <div>
-                        <h5 className="text-[10px] font-black text-teal-600 mb-3 uppercase">نقاط التميز المرصودة:</h5>
-                        <ul className="space-y-2">
-                          {strengths.map((s, i) => (
-                            <li key={i} className="flex items-start gap-2 text-xs font-bold text-teal-800">
-                              <span className="mt-1 text-teal-500">✓</span> {s}
-                            </li>
-                          ))}
-                        </ul>
-                      </div>
-                    )}
-                    {recommendation && (
-                      <div className="pt-4 border-t border-teal-100">
-                        <h5 className="text-[10px] font-black text-teal-600 mb-3 uppercase">توصية اللجنة النهائية:</h5>
-                        <p className="text-xs font-black leading-relaxed text-[#0d333f] italic">
-                          "{recommendation}"
-                        </p>
-                      </div>
-                    )}
-                  </div>
-                )}
-              </div>
             </div>
-
           </div>
         </div>
       </div>
