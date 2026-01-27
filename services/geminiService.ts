@@ -1,33 +1,30 @@
-
 export const analyzeTeacherReport = async (driveLink: string) => {
   try {
-    const response = await fetch('/api/analyze', {
+    // هذه الخدمة الآن تقوم بعملية المسح ثم التحليل لتكون متوافقة مع الـ API الجديد
+    const scanRes = await fetch('/api/drive/scan', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ link: driveLink }),
     });
 
-    const result = await response.json();
+    const scanData = await scanRes.json();
+    if (!scanRes.ok) throw new Error(scanData.error || 'فشل مسح المجلد');
 
-    if (!response.ok) {
-      if (response.status === 429) {
-        throw new Error('عذراً، تم الوصول للحد الأقصى لطلبات التحليل المجانية المتاحة حالياً. يرجى الانتظار دقيقة واحدة ثم المحاولة مرة أخرى.');
-      }
-      const errorMessage = result.details ? `${result.error}: ${result.details}` : (result.error || 'فشل التحليل');
-      throw new Error(errorMessage);
-    }
-    
-    if (result.suggested_scores) {
-      const fixedScores: Record<number, number> = {};
-      for (let i = 1; i <= 11; i++) {
-        fixedScores[i] = Number(result.suggested_scores[i.toString()] || result.suggested_scores[i] || 0);
-      }
-      result.suggested_scores = fixedScores;
-    }
-    
+    const response = await fetch('/api/analyze', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ 
+        mode: 'bulk_analysis', 
+        files: scanData.files || [] 
+      }),
+    });
+
+    const result = await response.json();
+    if (!response.ok) throw new Error(result.error || 'فشل التحليل الذكي');
+
     return result;
   } catch (error: any) {
-    console.error("AI Analysis Client Error:", error);
-    throw error;
+    console.error("Gemini Service Error:", error);
+    throw new Error(error.message || 'خطأ في الاتصال بخدمة الذكاء الاصطناعي');
   }
 };
