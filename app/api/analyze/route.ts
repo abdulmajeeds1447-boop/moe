@@ -7,7 +7,7 @@ export const maxDuration = 60;
 
 export async function POST(req: Request) {
   try {
-    const { fileId, mimeType, fileName, mode, previousFindings } = await req.json();
+    const { files, mode } = await req.json();
 
     if (!process.env.API_KEY) {
       return NextResponse.json({ error: 'مفتاح Gemini API غير معرف.' }, { status: 500 });
@@ -15,38 +15,38 @@ export async function POST(req: Request) {
 
     const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
 
-    // المرحلة 1: تحليل ملف واحد واستخراج الشواهد (لتوفير التوكنز وتجنب الـ 429)
-    if (mode === 'partial') {
-      const buffer = await downloadDriveFile(fileId);
-      const base64Data = Buffer.from(buffer).toString('base64');
-
-      const response = await ai.models.generateContent({
-        model: 'gemini-3-flash-preview',
-        contents: [{
-          parts: [
-            { inlineData: { data: base64Data, mimeType } },
-            { text: `قم بفحص المستند (${fileName}) واستخرج شواهد تربوية للمعايير الـ 11 (الدوام، المجتمع، أولياء الأمور، الاستراتيجيات، النتائج، التخطيط، التقنية، البيئة، الإدارة، التحليل، التقويم). اكتب ما وجدته بوضوح واختصار.` }
-          ]
-        }],
-        config: { temperature: 0.1 }
-      });
-      return NextResponse.json({ findings: response.text || "" });
-    }
-
-    // المرحلة 2: إصدار القرار النهائي بناءً على جميع الشواهد المجموعة
-    if (mode === 'final') {
-      const response = await ai.models.generateContent({
-        model: 'gemini-3-pro-preview',
-        contents: [{
-          parts: [{ text: `بصفتك "رئيس لجنة تدقيق الأداء الوظيفي"، أمامك الشواهد المستخرجة:\n${previousFindings}\n
-          المطلوب: تقييم كل معيار من 0 إلى 5 بصرامة مهنية.
-          القواعد: 
-          1- لا تمنح 5 إلا بشاهد ابتكاري. 
-          2- الشاهد الروتيني = 3 أو 4. 
-          3- غياب الشاهد = 0.
+    // وضع التحليل الشامل (يعالج كل الملفات في طلب واحد)
+    if (mode === 'bulk_analysis') {
+      const parts: any[] = [
+        { text: `بصفتك خبيراً في تقييم الأداء الوظيفي للمعلمين، قم بفحص كافة الشواهد المرفقة (صور و PDF) وتقييم المعايير الـ 11 التالية من (0 إلى 5):
+          1- الواجبات، 2- المجتمع، 3- أولياء الأمور، 4- الاستراتيجيات، 5- تحسين النتائج، 6- التخطيط، 7- التقنية، 8- البيئة، 9- الإدارة، 10- التحليل، 11- التقويم.
           
-          المعايير: 1-الواجبات، 2-المجتمع، 3-أولياء الأمور، 4-الاستراتيجيات، 5-تحسين النتائج، 6-التخطيط، 7-التقنية، 8-البيئة، 9-الإدارة، 10-التحليل، 11-التقويم.` }]
-        }],
+          القواعد:
+          - كن صارماً وموضوعياً.
+          - الدرجة 5 تمنح فقط عند وجود ابتكار واضح.
+          - غياب الشاهد للمعيار يعني درجة 0.
+          - استخرج مبرراً قصيراً لكل معيار بناءً على ما رأيته في الصور/الملفات.` }
+      ];
+
+      // تحميل الملفات وتحويلها لـ Base64 لضمها للطلب
+      for (const file of files) {
+        try {
+          const buffer = await downloadDriveFile(file.id);
+          const base64Data = Buffer.from(buffer).toString('base64');
+          parts.push({
+            inlineData: {
+              data: base64Data,
+              mimeType: file.mimeType
+            }
+          });
+        } catch (e) {
+          console.error("Error downloading file for AI:", file.name);
+        }
+      }
+
+      const response = await ai.models.generateContent({
+        model: 'gemini-2.5-flash-lite-latest', // استخدام موديل لايت لضمان سرعة الاستجابة وتجنب الـ Limits
+        contents: [{ parts }],
         config: { 
           responseMimeType: "application/json",
           responseSchema: {
@@ -61,7 +61,7 @@ export async function POST(req: Request) {
                   "10": { type: Type.NUMBER }, "11": { type: Type.NUMBER }
                 }
               },
-              justifications: { type: Type.ARRAY, items: { type: Type.STRING } },
+              justifications: { type: Type.ARRAY, items: { type: Type.STRING }, description: "مبرر واحد لكل معيار بالترتيب" },
               strengths: { type: Type.ARRAY, items: { type: Type.STRING } },
               weaknesses: { type: Type.ARRAY, items: { type: Type.STRING } },
               recommendation: { type: Type.STRING }
@@ -77,9 +77,10 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: 'وضع غير مدعوم' }, { status: 400 });
 
   } catch (error: any) {
+    console.error("AI Error:", error);
     if (error.status === 429) {
-      return NextResponse.json({ error: 'RateLimit', details: 'تجاوز الحد المسموح للطلبات.' }, { status: 429 });
+      return NextResponse.json({ error: 'عذراً، الخدمة مزدحمة. يرجى الانتظار دقيقة واحدة.' }, { status: 429 });
     }
-    return NextResponse.json({ error: 'AI Error', details: error.message }, { status: 500 });
+    return NextResponse.json({ error: 'فشل التحليل الذكي', details: error.message }, { status: 500 });
   }
 }
