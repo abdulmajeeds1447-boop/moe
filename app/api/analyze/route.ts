@@ -8,32 +8,24 @@ export const maxDuration = 60;
 export async function POST(req: Request) {
   try {
     const body = await req.json();
-    const { files, mode, link } = body;
+    const { files, mode } = body;
 
     if (!process.env.API_KEY) {
-      return NextResponse.json({ error: 'مفتاح Gemini API غير معرف في الإعدادات.' }, { status: 500 });
+      return NextResponse.json({ error: 'مفتاح Gemini API غير معرف.' }, { status: 500 });
     }
 
     const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
 
-    // تحديد الوضع: إذا كان هناك ملفات، نعتبره تحليل شامل تلقائياً لتجنب خطأ "وضع غير مدعوم"
-    const effectiveMode = mode || (files ? 'bulk_analysis' : 'legacy');
-
-    if (effectiveMode === 'bulk_analysis' && files && Array.isArray(files)) {
+    if (files && Array.isArray(files)) {
       const parts: any[] = [
-        { text: `أنت مقيم أداء وظيفي خبير في وزارة التعليم. قم بتحليل كافة الشواهد المرفقة (صور و PDF) وتقييم المعايير الـ 11 التالية بناءً على الأدلة المرئية فقط.
-          المعايير هي: 1- الأداء، 2- المجتمع، 3- أولياء الأمور، 4- الاستراتيجيات، 5- تحسين النتائج، 6- التخطيط، 7- التقنية، 8- البيئة، 9- الإدارة، 10- التحليل، 11- التقويم.
-          
-          القواعد الصارمة:
-          - الدرجة من 0 إلى 5 (5 تمنح فقط عند وجود ابتكار استثنائي).
-          - إذا لم تجد شاهداً لمعيار معين، امنحه درجة 0.
-          - اكتب مبرراً تربوياً قصيراً ومقنعاً لكل معيار بناءً على ما وجدته في الصور/الملفات.
-          - كن موضوعياً جداً ولا تجامل.` }
+        { text: `أنت مقيم تربوي خبير. قم بتحليل الشواهد المرفقة وتقييم المعايير الـ 11 من (0-5).
+          المعايير: 1-الواجبات، 2-المجتمع، 3-أولياء الأمور، 4-الاستراتيجيات، 5-النتائج، 6-التخطيط، 7-التقنية، 8-البيئة، 9-الإدارة، 10-التحليل، 11-التقويم.
+          - قدم مبرراً قصيراً جداً لكل معيار.
+          - إذا لم تجد شواهد لبعض المعايير، أعطها 0.` }
       ];
 
-      // تحميل الملفات وتحويلها لـ Base64
-      // نكتفي بآخر 12 ملفاً لضمان عدم تجاوز حجم الطلب
-      const filesToProcess = files.slice(0, 12);
+      // تقليل العدد لـ 6 ملفات فقط لضمان المرور من قيود جوجل المجانية
+      const filesToProcess = files.slice(0, 6);
       
       for (const file of filesToProcess) {
         try {
@@ -46,12 +38,13 @@ export async function POST(req: Request) {
             }
           });
         } catch (e) {
-          console.error(`Error downloading file ${file.name}:`, e);
+          console.error(`Error loading file ${file.name}`);
         }
       }
 
       const response = await ai.models.generateContent({
-        model: 'gemini-3-flash-preview', 
+        // استخدام موديل Lite لأنه يسمح بطلبات أكثر استقراراً في النسخة المجانية
+        model: 'gemini-2.5-flash-lite-latest', 
         contents: [{ parts }],
         config: { 
           responseMimeType: "application/json",
@@ -67,7 +60,7 @@ export async function POST(req: Request) {
                   "10": { type: Type.NUMBER }, "11": { type: Type.NUMBER }
                 }
               },
-              justifications: { type: Type.ARRAY, items: { type: Type.STRING }, description: "مبرر واحد لكل معيار بالترتيب من 1 إلى 11" },
+              justifications: { type: Type.ARRAY, items: { type: Type.STRING } },
               strengths: { type: Type.ARRAY, items: { type: Type.STRING } },
               weaknesses: { type: Type.ARRAY, items: { type: Type.STRING } },
               recommendation: { type: Type.STRING }
@@ -80,17 +73,12 @@ export async function POST(req: Request) {
       return NextResponse.json(JSON.parse(response.text.trim()));
     }
 
-    // التعامل مع الطلبات القديمة أو غير المكتملة
-    return NextResponse.json({ 
-      error: 'لم يتم العثور على ملفات للتحليل. تأكد من أن المجلد يحتوي على ملفات PDF أو صور.',
-      receivedMode: effectiveMode
-    }, { status: 400 });
+    return NextResponse.json({ error: 'لا توجد ملفات معالجة' }, { status: 400 });
 
   } catch (error: any) {
-    console.error("AI Analysis Error:", error);
     if (error.status === 429) {
-      return NextResponse.json({ error: 'عذراً، تجاوزنا عدد الطلبات المسموح. يرجى الانتظار دقيقة.' }, { status: 429 });
+      return NextResponse.json({ error: 'RATE_LIMIT' }, { status: 429 });
     }
-    return NextResponse.json({ error: 'حدث خطأ أثناء التحليل الذكي للبيانات.', details: error.message }, { status: 500 });
+    return NextResponse.json({ error: 'فشل التحليل الذكي', details: error.message }, { status: 500 });
   }
 }
