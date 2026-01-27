@@ -7,29 +7,35 @@ export const maxDuration = 60;
 
 export async function POST(req: Request) {
   try {
-    const { files, mode } = await req.json();
+    const body = await req.json();
+    const { files, mode, link } = body;
 
     if (!process.env.API_KEY) {
-      return NextResponse.json({ error: 'مفتاح Gemini API غير معرف.' }, { status: 500 });
+      return NextResponse.json({ error: 'مفتاح Gemini API غير معرف في الإعدادات.' }, { status: 500 });
     }
 
     const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
 
-    // وضع التحليل الشامل (يعالج كل الملفات في طلب واحد)
-    if (mode === 'bulk_analysis') {
+    // تحديد الوضع: إذا كان هناك ملفات، نعتبره تحليل شامل تلقائياً لتجنب خطأ "وضع غير مدعوم"
+    const effectiveMode = mode || (files ? 'bulk_analysis' : 'legacy');
+
+    if (effectiveMode === 'bulk_analysis' && files && Array.isArray(files)) {
       const parts: any[] = [
-        { text: `بصفتك خبيراً في تقييم الأداء الوظيفي للمعلمين، قم بفحص كافة الشواهد المرفقة (صور و PDF) وتقييم المعايير الـ 11 التالية من (0 إلى 5):
-          1- الواجبات، 2- المجتمع، 3- أولياء الأمور، 4- الاستراتيجيات، 5- تحسين النتائج، 6- التخطيط، 7- التقنية، 8- البيئة، 9- الإدارة، 10- التحليل، 11- التقويم.
+        { text: `أنت مقيم أداء وظيفي خبير في وزارة التعليم. قم بتحليل كافة الشواهد المرفقة (صور و PDF) وتقييم المعايير الـ 11 التالية بناءً على الأدلة المرئية فقط.
+          المعايير هي: 1- الأداء، 2- المجتمع، 3- أولياء الأمور، 4- الاستراتيجيات، 5- تحسين النتائج، 6- التخطيط، 7- التقنية، 8- البيئة، 9- الإدارة، 10- التحليل، 11- التقويم.
           
-          القواعد:
-          - كن صارماً وموضوعياً.
-          - الدرجة 5 تمنح فقط عند وجود ابتكار واضح.
-          - غياب الشاهد للمعيار يعني درجة 0.
-          - استخرج مبرراً قصيراً لكل معيار بناءً على ما رأيته في الصور/الملفات.` }
+          القواعد الصارمة:
+          - الدرجة من 0 إلى 5 (5 تمنح فقط عند وجود ابتكار استثنائي).
+          - إذا لم تجد شاهداً لمعيار معين، امنحه درجة 0.
+          - اكتب مبرراً تربوياً قصيراً ومقنعاً لكل معيار بناءً على ما وجدته في الصور/الملفات.
+          - كن موضوعياً جداً ولا تجامل.` }
       ];
 
-      // تحميل الملفات وتحويلها لـ Base64 لضمها للطلب
-      for (const file of files) {
+      // تحميل الملفات وتحويلها لـ Base64
+      // نكتفي بآخر 12 ملفاً لضمان عدم تجاوز حجم الطلب
+      const filesToProcess = files.slice(0, 12);
+      
+      for (const file of filesToProcess) {
         try {
           const buffer = await downloadDriveFile(file.id);
           const base64Data = Buffer.from(buffer).toString('base64');
@@ -40,12 +46,12 @@ export async function POST(req: Request) {
             }
           });
         } catch (e) {
-          console.error("Error downloading file for AI:", file.name);
+          console.error(`Error downloading file ${file.name}:`, e);
         }
       }
 
       const response = await ai.models.generateContent({
-        model: 'gemini-2.5-flash-lite-latest', // استخدام موديل لايت لضمان سرعة الاستجابة وتجنب الـ Limits
+        model: 'gemini-3-flash-preview', 
         contents: [{ parts }],
         config: { 
           responseMimeType: "application/json",
@@ -61,7 +67,7 @@ export async function POST(req: Request) {
                   "10": { type: Type.NUMBER }, "11": { type: Type.NUMBER }
                 }
               },
-              justifications: { type: Type.ARRAY, items: { type: Type.STRING }, description: "مبرر واحد لكل معيار بالترتيب" },
+              justifications: { type: Type.ARRAY, items: { type: Type.STRING }, description: "مبرر واحد لكل معيار بالترتيب من 1 إلى 11" },
               strengths: { type: Type.ARRAY, items: { type: Type.STRING } },
               weaknesses: { type: Type.ARRAY, items: { type: Type.STRING } },
               recommendation: { type: Type.STRING }
@@ -74,13 +80,17 @@ export async function POST(req: Request) {
       return NextResponse.json(JSON.parse(response.text.trim()));
     }
 
-    return NextResponse.json({ error: 'وضع غير مدعوم' }, { status: 400 });
+    // التعامل مع الطلبات القديمة أو غير المكتملة
+    return NextResponse.json({ 
+      error: 'لم يتم العثور على ملفات للتحليل. تأكد من أن المجلد يحتوي على ملفات PDF أو صور.',
+      receivedMode: effectiveMode
+    }, { status: 400 });
 
   } catch (error: any) {
-    console.error("AI Error:", error);
+    console.error("AI Analysis Error:", error);
     if (error.status === 429) {
-      return NextResponse.json({ error: 'عذراً، الخدمة مزدحمة. يرجى الانتظار دقيقة واحدة.' }, { status: 429 });
+      return NextResponse.json({ error: 'عذراً، تجاوزنا عدد الطلبات المسموح. يرجى الانتظار دقيقة.' }, { status: 429 });
     }
-    return NextResponse.json({ error: 'فشل التحليل الذكي', details: error.message }, { status: 500 });
+    return NextResponse.json({ error: 'حدث خطأ أثناء التحليل الذكي للبيانات.', details: error.message }, { status: 500 });
   }
 }
